@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from '@/lib/toast'
 import { Lock, User, Eye, EyeOff, Loader2, Home } from 'lucide-react'
 import { authApi } from '@/lib/api'
+import PoweredBy from '@/components/PoweredBy'
 
 export default function AdminLoginPage() {
   const router = useRouter()
@@ -100,6 +101,8 @@ export default function AdminLoginPage() {
         <p className="text-center text-brand-400 text-xs mt-5">
           Hanya untuk admin / humas perumahan
         </p>
+
+        <PoweredBy className="text-brand-400/80 mt-3" />
       </div>
     </div>
   )

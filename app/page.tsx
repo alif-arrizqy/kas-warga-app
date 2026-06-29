@@ -9,6 +9,7 @@ import { dashboardApi, formatRupiah, MONTHS_ID } from '@/lib/api'
 import type { DashboardData } from '@/lib/types'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import StatusBadge from '@/components/StatusBadge'
+import PoweredBy from '@/components/PoweredBy'
 import { motion, AnimatePresence } from 'motion/react'
 
 export default function HomePage() {
@@ -266,6 +267,8 @@ export default function HomePage() {
             </p>
           </div>
         </div>
+
+        <PoweredBy className="text-slate-400 mt-1" />
       </div>
 
       {/* Bottom Nav / CTA — pb-safe handles iOS home indicator */}

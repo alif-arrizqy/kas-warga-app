@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import toast from 'react-hot-toast'
+import { toast } from '@/lib/toast'
 import { Lock, User, Eye, EyeOff, Loader2, Home } from 'lucide-react'
 import { authApi } from '@/lib/api'
 

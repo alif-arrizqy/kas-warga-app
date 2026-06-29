@@ -126,7 +126,18 @@ export const exportApi = {
 // ─── Settings ────────────────────────────────────────────────────────────────
 export const settingApi = {
   get: () => api.get('/api/settings'),
-  update: (data: Record<string, string>) => api.put('/api/settings', data),
+  update: (data: object) => api.put('/api/settings', data),
+}
+
+// ─── Admin management ─────────────────────────────────────────────────────────
+export const adminApi = {
+  list: () => api.get('/api/admins'),
+  get: (id: string) => api.get(`/api/admins/${id}`),
+  create: (data: { username: string; name: string; password: string }) =>
+    api.post('/api/admins', data),
+  update: (id: string, data: Partial<{ username: string; name: string; password: string }>) =>
+    api.put(`/api/admins/${id}`, data),
+  delete: (id: string) => api.delete(`/api/admins/${id}`),
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -137,6 +148,33 @@ export const formatRupiah = (amount: number): string =>
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(amount)
+
+// ─── Validasi & Format Input ─────────────────────────────────────────────────
+export const sanitizeDigits = (value: string): string => value.replace(/\D/g, '')
+
+export const formatMoneyInput = (value: string): string => {
+  const numeric = sanitizeDigits(value)
+  if (!numeric) return ''
+  return new Intl.NumberFormat('id-ID').format(Number(numeric))
+}
+
+// Telepon: angka saja, normalisasi 0xxx → 62xxx, format 62891-1234-1234, maks 13 digit
+export const formatPhoneInput = (value: string): string => {
+  let digits = sanitizeDigits(value)
+  if (digits.startsWith('0')) digits = '62' + digits.slice(1)
+  digits = digits.slice(0, 13)
+  return [digits.slice(0, 5), digits.slice(5, 9), digits.slice(9, 13)]
+    .filter(Boolean)
+    .join('-')
+}
+
+export const isValidPhone = (value: string): boolean => {
+  const len = sanitizeDigits(value).length
+  return len >= 11 && len <= 13
+}
+
+// Email opsional: valid jika kosong, atau mengandung '@'
+export const isValidEmail = (value: string): boolean => !value || value.includes('@')
 
 export const MONTHS_ID = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',

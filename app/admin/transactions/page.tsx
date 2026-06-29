@@ -1,18 +1,43 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import toast from 'react-hot-toast'
+import { toast } from '@/lib/toast'
 import {
   Plus, TrendingUp, TrendingDown, Loader2, Trash2,
   RefreshCw, Download
 } from 'lucide-react'
-import { transactionApi, exportApi, formatRupiah, MONTHS_ID } from '@/lib/api'
+import {
+  transactionApi,
+  exportApi,
+  formatRupiah,
+  MONTHS_ID,
+  formatMoneyInput,
+  sanitizeDigits,
+} from '@/lib/api'
 import type { Transaction } from '@/lib/types'
 import Modal from '@/components/ui/Modal'
+import AnimatedSelect from '@/components/ui/AnimatedSelect'
+import FilterPanel from '@/components/ui/FilterPanel'
+import { motion } from 'motion/react'
 
 const CATEGORIES = {
   INCOME: ['Donasi', 'Denda', 'Kontribusi Acara', 'Lainnya'],
   EXPENSE: ['Kebersihan', 'Keamanan', 'Perbaikan Fasilitas', 'Acara/Kegiatan', 'ATK', 'Lainnya'],
 }
+
+const YEAR_NOW = new Date().getFullYear()
+const TYPE_OPTIONS = [
+  { value: '', label: 'Semua' },
+  { value: 'INCOME', label: 'Pemasukan' },
+  { value: 'EXPENSE', label: 'Pengeluaran' },
+]
+const MONTH_OPTIONS = [
+  { value: '', label: 'Semua' },
+  ...MONTHS_ID.map((m, i) => ({ value: String(i + 1), label: m })),
+]
+const YEAR_OPTIONS = [YEAR_NOW - 3, YEAR_NOW - 2, YEAR_NOW - 1, YEAR_NOW].map((y) => ({
+  value: String(y),
+  label: String(y),
+}))
 
 export default function AdminTransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -64,7 +89,8 @@ export default function AdminTransactionsPage() {
   }
 
   async function handleSave() {
-    if (!form.amount || !form.description || !form.date) {
+    const normalizedAmount = sanitizeDigits(form.amount)
+    if (!normalizedAmount || !form.description || !form.date) {
       toast.error('Nominal, keterangan, dan tanggal wajib diisi')
       return
     }
@@ -73,7 +99,7 @@ export default function AdminTransactionsPage() {
     try {
       await transactionApi.create({
         type: form.type,
-        amount: parseInt(form.amount),
+        amount: parseInt(normalizedAmount),
         description: form.description,
         category: form.category || undefined,
         date: form.date,
@@ -109,22 +135,22 @@ export default function AdminTransactionsPage() {
   })
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className="p-3 sm:p-4 lg:p-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
         <div>
-          <h1 className="page-header">Kas Masuk & Keluar</h1>
-          <p className="text-gray-500 text-sm">Pemasukan dan pengeluaran selain IPL bulanan</p>
+          <h1 className="page-header text-[1.3rem] sm:text-[1.6rem] lg:text-[2rem]">Kas Masuk & Keluar</h1>
+          <p className="text-slate-500 text-xs sm:text-sm">Pemasukan dan pengeluaran selain IPL bulanan</p>
         </div>
-        <div className="sm:ml-auto flex gap-2">
-          <button onClick={loadTransactions} className="btn-secondary">
+        <div className="sm:ml-auto grid grid-cols-3 sm:flex gap-2 w-full sm:w-auto">
+          <button onClick={loadTransactions} className="btn-secondary justify-center min-h-10">
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button onClick={() => exportApi.transactions(parseInt(filterYear)).catch(() => toast.error('Gagal export'))} className="btn-secondary text-sm">
+          <button onClick={() => exportApi.transactions(parseInt(filterYear)).catch(() => toast.error('Gagal export'))} className="btn-secondary text-sm justify-center min-h-10">
             <Download size={15} />
             Export
           </button>
-          <button onClick={() => { resetForm(); setShowAddModal(true) }} className="btn-primary text-sm">
+          <button onClick={() => { resetForm(); setShowAddModal(true) }} className="btn-primary text-sm justify-center min-h-10">
             <Plus size={15} />
             Tambah
           </button>
@@ -132,59 +158,46 @@ export default function AdminTransactionsPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 mb-5">
         <div className="card text-center">
           <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-2">
             <TrendingUp size={16} className="text-green-600" />
           </div>
           <p className="text-xs text-gray-500 mb-0.5">Pemasukan</p>
-          <p className="font-bold text-green-700 text-sm">{formatRupiah(summary.incomeTotal)}</p>
+          <p className="font-bold text-xs sm:text-sm break-words">{formatRupiah(summary.incomeTotal)}</p>
         </div>
         <div className="card text-center">
           <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center mx-auto mb-2">
             <TrendingDown size={16} className="text-red-600" />
           </div>
           <p className="text-xs text-gray-500 mb-0.5">Pengeluaran</p>
-          <p className="font-bold text-red-700 text-sm">{formatRupiah(summary.expenseTotal)}</p>
+          <p className="font-bold text-xs sm:text-sm break-words">{formatRupiah(summary.expenseTotal)}</p>
         </div>
         <div className={`card text-center ${summary.net >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
           <p className="text-xs text-gray-500 mb-0.5 mt-5">Saldo</p>
-          <p className={`font-bold text-sm ${summary.net >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+          <p className={`font-bold text-xs sm:text-sm break-words ${summary.net >= 0 ? 'text-green-700' : 'text-red-700'}`}>
             {formatRupiah(Math.abs(summary.net))}
           </p>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="card mb-4">
-        <div className="grid grid-cols-3 gap-3">
+      <FilterPanel activeCount={(filterType ? 1 : 0) + (filterMonth ? 1 : 0)}>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
           <div>
             <label className="input-label">Tipe</label>
-            <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="input-field text-sm">
-              <option value="">Semua</option>
-              <option value="INCOME">Pemasukan</option>
-              <option value="EXPENSE">Pengeluaran</option>
-            </select>
+            <AnimatedSelect value={filterType} onChange={setFilterType} options={TYPE_OPTIONS} />
           </div>
           <div>
             <label className="input-label">Bulan</label>
-            <select value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="input-field text-sm">
-              <option value="">Semua</option>
-              {MONTHS_ID.map((m, i) => (
-                <option key={i + 1} value={i + 1}>{m}</option>
-              ))}
-            </select>
+            <AnimatedSelect value={filterMonth} onChange={setFilterMonth} options={MONTH_OPTIONS} />
           </div>
-          <div>
+          <div className="col-span-2 sm:col-span-1">
             <label className="input-label">Tahun</label>
-            <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)} className="input-field text-sm">
-              {[2023, 2024, 2025, 2026].map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+            <AnimatedSelect value={filterYear} onChange={setFilterYear} options={YEAR_OPTIONS} />
           </div>
         </div>
-      </div>
+      </FilterPanel>
 
       {/* Transaction List */}
       {loading ? (
@@ -205,15 +218,15 @@ export default function AdminTransactionsPage() {
             const monthExpense = items.filter((t) => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0)
             return (
               <div key={monthLabel}>
-                <div className="flex items-center gap-3 mb-2">
-                  <h3 className="font-semibold text-gray-700 text-sm">{monthLabel}</h3>
+                <div className="flex items-center gap-2 sm:gap-3 mb-2">
+                  <h3 className="font-semibold text-gray-700 text-xs sm:text-sm">{monthLabel}</h3>
                   <div className="flex-1 h-px bg-gray-100" />
-                  <span className="text-xs text-green-600">+{formatRupiah(monthIncome)}</span>
-                  <span className="text-xs text-red-600">-{formatRupiah(monthExpense)}</span>
+                  <span className="text-[11px] sm:text-xs text-green-600">+{formatRupiah(monthIncome)}</span>
+                  <span className="text-[11px] sm:text-xs text-red-600">-{formatRupiah(monthExpense)}</span>
                 </div>
                 <div className="space-y-2">
                   {items.map((t) => (
-                    <div key={t.id} className="card-hover flex items-center gap-3">
+                    <div key={t.id} className="card-hover flex items-start sm:items-center gap-2.5 sm:gap-3">
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
                         t.type === 'INCOME' ? 'bg-green-100' : 'bg-red-100'
                       }`}>
@@ -224,20 +237,20 @@ export default function AdminTransactionsPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900 text-sm truncate">{t.description}</p>
-                        <p className="text-xs text-gray-400">
+                        <p className="text-[11px] sm:text-xs text-gray-400">
                           {t.category && `${t.category} · `}
                           {new Date(t.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
                           {' · '}{t.createdBy}
                         </p>
                       </div>
-                      <p className={`font-semibold text-sm flex-shrink-0 ${
+                      <p className={`font-semibold text-xs sm:text-sm flex-shrink-0 ${
                         t.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
                       }`}>
                         {t.type === 'INCOME' ? '+' : '-'}{formatRupiah(t.amount)}
                       </p>
                       <button
                         onClick={() => handleDelete(t.id, t.description)}
-                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
+                        className="p-2.5 sm:p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
                       >
                         <Trash2 size={15} />
                       </button>
@@ -258,34 +271,35 @@ export default function AdminTransactionsPage() {
         size="md"
       >
         <div className="p-5 space-y-4">
-          {/* Type Toggle */}
+          {/* Type Toggle — layoutId pill slides between options */}
           <div>
             <label className="input-label">Tipe Transaksi</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, type: 'INCOME', category: '' })}
-                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
-                  form.type === 'INCOME'
-                    ? 'border-green-600 bg-green-50 text-green-700'
-                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                }`}
-              >
-                <TrendingUp size={16} />
-                Pemasukan
-              </button>
-              <button
-                type="button"
-                onClick={() => setForm({ ...form, type: 'EXPENSE', category: '' })}
-                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
-                  form.type === 'EXPENSE'
-                    ? 'border-red-600 bg-red-50 text-red-700'
-                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                }`}
-              >
-                <TrendingDown size={16} />
-                Pengeluaran
-              </button>
+            <div className="relative flex bg-gray-100 rounded-xl p-1">
+              {([
+                { value: 'INCOME', label: 'Pemasukan', icon: TrendingUp, activeBg: 'bg-green-600' },
+                { value: 'EXPENSE', label: 'Pengeluaran', icon: TrendingDown, activeBg: 'bg-red-600' },
+              ] as const).map(({ value, label, icon: Icon, activeBg }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setForm({ ...form, type: value, category: '' })}
+                  className="relative flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium z-10"
+                >
+                  {form.type === value && (
+                    <motion.div
+                      layoutId="type-pill"
+                      className={`absolute inset-0 rounded-lg ${activeBg}`}
+                      transition={{ type: 'spring', stiffness: 500, damping: 38 }}
+                    />
+                  )}
+                  <span className={`relative z-10 flex items-center gap-2 transition-colors duration-150 ${
+                    form.type === value ? 'text-white' : 'text-slate-600'
+                  }`}>
+                    <Icon size={16} />
+                    {label}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -302,12 +316,12 @@ export default function AdminTransactionsPage() {
           <div>
             <label className="input-label">Nominal (Rp)</label>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              onChange={(e) => setForm({ ...form, amount: formatMoneyInput(e.target.value) })}
               placeholder="Masukkan nominal"
               className="input-field"
-              min="0"
             />
           </div>
 
@@ -324,16 +338,15 @@ export default function AdminTransactionsPage() {
 
           <div>
             <label className="input-label">Kategori (opsional)</label>
-            <select
+            <AnimatedSelect
               value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className="input-field text-sm"
-            >
-              <option value="">-- Pilih kategori --</option>
-              {CATEGORIES[form.type].map((cat) => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
+              onChange={(v) => setForm({ ...form, category: v })}
+              placeholder="-- Pilih kategori --"
+              options={[
+                { value: '', label: '-- Pilih kategori --' },
+                ...CATEGORIES[form.type].map((cat) => ({ value: cat, label: cat })),
+              ]}
+            />
           </div>
 
           <div className="flex gap-3 pt-2">

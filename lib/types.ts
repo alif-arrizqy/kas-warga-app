@@ -97,3 +97,12 @@ export interface AdminUser {
   name: string
   role: string
 }
+
+export interface AdminAccount {
+  id: string
+  username: string
+  name: string
+  role: 'admin' | 'super-admin'
+  createdAt: string
+  updatedAt: string
+}

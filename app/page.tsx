@@ -1,7 +1,6 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { gsap } from 'gsap'
 import {
   Home, Users, Wallet, TrendingUp, TrendingDown, CheckCircle,
   Clock, AlertCircle, ArrowRight, Plus, RefreshCw, Calendar
@@ -10,30 +9,16 @@ import { dashboardApi, formatRupiah, MONTHS_ID } from '@/lib/api'
 import type { DashboardData } from '@/lib/types'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import StatusBadge from '@/components/StatusBadge'
+import { motion, AnimatePresence } from 'motion/react'
 
 export default function HomePage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [showUnpaid, setShowUnpaid] = useState(false)
-  const heroRef = useRef<HTMLDivElement>(null)
-  const cardsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadDashboard()
   }, [])
-
-  useEffect(() => {
-    if (data && heroRef.current && cardsRef.current) {
-      const tl = gsap.timeline()
-      tl.fromTo(heroRef.current, { opacity: 0, y: -30 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power2.out' })
-        .fromTo(
-          cardsRef.current.children,
-          { opacity: 0, y: 40, scale: 0.95 },
-          { opacity: 1, y: 0, scale: 1, duration: 0.5, stagger: 0.1, ease: 'back.out(1.4)' },
-          '-=0.2'
-        )
-    }
-  }, [data])
 
   async function loadDashboard() {
     try {
@@ -53,7 +38,7 @@ export default function HomePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-dvh bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin mx-auto mb-4" />
           <p className="text-gray-500">Memuat data...</p>
@@ -67,12 +52,9 @@ export default function HomePage() {
   const currentYear = data?.summary.currentYear || new Date().getFullYear()
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-dvh bg-gray-50">
       {/* Hero Header */}
-      <div
-        ref={heroRef}
-        className="bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 text-white"
-      >
+      <div className="bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 text-white animate-fade-in">
         <div className="max-w-lg mx-auto px-4 pt-12 pb-8">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
@@ -108,9 +90,9 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 -mt-4 pb-24">
+      <div className="max-w-lg mx-auto px-4 -mt-4 pb-28">
         {/* Stats Cards */}
-        <div ref={cardsRef} className="grid grid-cols-2 gap-3 mb-5">
+        <div className="stagger-children grid grid-cols-2 gap-3 mb-5">
           {/* Bulan Ini Card */}
           <div className="col-span-2 card">
             <div className="flex items-center justify-between mb-3">
@@ -175,25 +157,33 @@ export default function HomePage() {
         </div>
 
         {/* Daftar Belum Bayar (expandable) */}
-        {showUnpaid && data?.unpaidHouseholds && data.unpaidHouseholds.length > 0 && (
-          <div className="card mb-5 animate-slide-up">
-            <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-              <AlertCircle size={16} className="text-red-500" />
-              Belum Bayar Bulan Ini
-            </h3>
-            <div className="space-y-2">
-              {data.unpaidHouseholds.map((hh) => (
-                <div key={hh.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{hh.name}</p>
-                    <p className="text-xs text-gray-400">Blok {hh.block} No. {hh.number}</p>
+        <AnimatePresence>
+          {showUnpaid && data?.unpaidHouseholds && data.unpaidHouseholds.length > 0 && (
+            <motion.div
+              className="card mb-5 overflow-hidden"
+              initial={{ opacity: 0, y: -8, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
+            >
+              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <AlertCircle size={16} className="text-red-500" />
+                Belum Bayar Bulan Ini
+              </h3>
+              <div className="space-y-2">
+                {data.unpaidHouseholds.map((hh) => (
+                  <div key={hh.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{hh.name}</p>
+                      <p className="text-xs text-gray-400">Blok {hh.block} No. {hh.number}</p>
+                    </div>
+                    <span className="badge-rejected">Belum Bayar</span>
                   </div>
-                  <span className="badge-rejected">Belum Bayar</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Pembayaran Bulan Ini */}
         <div className="card mb-5">
@@ -278,16 +268,20 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Bottom Nav / CTA */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-100 px-4 py-3">
+      {/* Bottom Nav / CTA — pb-safe handles iOS home indicator */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-100 px-4 pt-3 pb-safe"
+        style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))' }}
+      >
         <div className="max-w-lg mx-auto flex items-center gap-3">
           <button
             onClick={loadDashboard}
-            className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
+            className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
+            aria-label="Refresh data"
           >
             <RefreshCw size={18} />
           </button>
-          <Link href="/submit" className="btn-primary flex-1 justify-center text-sm">
+          <Link href="/submit" className="btn-primary flex-1 justify-center text-sm min-h-[44px]">
             <Plus size={18} />
             Upload Bukti Bayar IPL
           </Link>

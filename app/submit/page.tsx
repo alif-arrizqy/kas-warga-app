@@ -2,17 +2,25 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import toast from 'react-hot-toast'
-import { gsap } from 'gsap'
+import { toast } from '@/lib/toast'
 import {
   ArrowLeft, Upload, CheckCircle, Loader2, AlertCircle,
   User, Wallet, X, Search,
 } from 'lucide-react'
-import { householdApi, paymentApi, formatRupiah, MONTHS_ID, getApiImageUrl } from '@/lib/api'
+import {
+  householdApi,
+  paymentApi,
+  MONTHS_ID,
+  formatMoneyInput,
+  sanitizeDigits,
+} from '@/lib/api'
 import type { Household } from '@/lib/types'
+import AnimatedSelect from '@/components/ui/AnimatedSelect'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1]
+const MONTH_OPTIONS = MONTHS_ID.map((m, i) => ({ value: String(i + 1), label: m }))
+const YEAR_OPTIONS = YEARS.map((y) => ({ value: String(y), label: String(y) }))
 
 export default function SubmitPage() {
   const [households, setHouseholds] = useState<Household[]>([])
@@ -26,20 +34,33 @@ export default function SubmitPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [paidIds, setPaidIds] = useState<Set<string>>(new Set())
 
-  const containerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadHouseholds()
-    if (containerRef.current) {
-      gsap.fromTo(
-        containerRef.current.children,
-        { opacity: 0, y: 20 },
-        { opacity: 1, y: 0, duration: 0.4, stagger: 0.08, ease: 'power2.out' }
-      )
-    }
   }, [])
+
+  // KK yang sudah upload bulan/tahun terpilih (menunggu/terverifikasi) tidak ditampilkan lagi
+  useEffect(() => {
+    loadPaidIds()
+  }, [month, year])
+
+  async function loadPaidIds() {
+    try {
+      const res = await paymentApi.list({ month, year, limit: 100 })
+      const ids = new Set<string>(
+        res.data.data
+          .filter((p: { status: string }) => p.status !== 'REJECTED')
+          .map((p: { householdId: string }) => p.householdId)
+      )
+      setPaidIds(ids)
+      setSelectedHousehold((cur) => (cur && ids.has(cur) ? '' : cur))
+    } catch {
+      /* abaikan — daftar tetap tampil penuh bila gagal */
+    }
+  }
 
   async function loadHouseholds() {
     try {
@@ -85,7 +106,8 @@ export default function SubmitPage() {
       formData.append('householdId', selectedHousehold)
       formData.append('month', String(month))
       formData.append('year', String(year))
-      if (amount) formData.append('amount', amount)
+      const normalizedAmount = sanitizeDigits(amount)
+      if (normalizedAmount) formData.append('amount', normalizedAmount)
       if (notes) formData.append('notes', notes)
       formData.append('proofImage', imageFile)
 
@@ -113,6 +135,7 @@ export default function SubmitPage() {
   }
 
   const filteredHouseholds = households.filter((hh) => {
+    if (paidIds.has(hh.id)) return false
     const q = searchQuery.toLowerCase()
     return (
       hh.name.toLowerCase().includes(q) ||
@@ -157,7 +180,7 @@ export default function SubmitPage() {
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-5 pb-12">
-        <form onSubmit={handleSubmit} ref={containerRef} className="space-y-4">
+        <form onSubmit={handleSubmit} className="stagger-children space-y-4">
 
           {/* ── Upload Foto ── */}
           <div className="card">
@@ -225,7 +248,11 @@ export default function SubmitPage() {
 
             <div className="max-h-48 overflow-y-auto rounded-xl border border-gray-100 bg-gray-50/50">
               {filteredHouseholds.length === 0 ? (
-                <p className="p-4 text-center text-sm text-gray-400">Tidak ditemukan</p>
+                <p className="p-4 text-center text-sm text-gray-400">
+                  {searchQuery
+                    ? 'Tidak ditemukan'
+                    : 'Semua KK sudah upload bukti untuk periode ini'}
+                </p>
               ) : (
                 filteredHouseholds.map((hh) => (
                   <button
@@ -264,39 +291,31 @@ export default function SubmitPage() {
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
                 <label className="input-label">Bulan</label>
-                <select
-                  value={month}
-                  onChange={(e) => setMonth(parseInt(e.target.value))}
-                  className="input-field text-sm"
-                >
-                  {MONTHS_ID.map((m, i) => (
-                    <option key={i + 1} value={i + 1}>{m}</option>
-                  ))}
-                </select>
+                <AnimatedSelect
+                  value={String(month)}
+                  onChange={(v) => setMonth(parseInt(v))}
+                  options={MONTH_OPTIONS}
+                />
               </div>
               <div>
                 <label className="input-label">Tahun</label>
-                <select
-                  value={year}
-                  onChange={(e) => setYear(parseInt(e.target.value))}
-                  className="input-field text-sm"
-                >
-                  {YEARS.map((y) => (
-                    <option key={y} value={y}>{y}</option>
-                  ))}
-                </select>
+                <AnimatedSelect
+                  value={String(year)}
+                  onChange={(v) => setYear(parseInt(v))}
+                  options={YEAR_OPTIONS}
+                />
               </div>
             </div>
 
             <div className="mb-3">
               <label className="input-label">Nominal Transfer (Rp) — opsional</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => setAmount(formatMoneyInput(e.target.value))}
                 placeholder="Isi jika berbeda dari iuran standar"
                 className="input-field"
-                min="0"
               />
               <p className="text-xs text-gray-400 mt-1">Kosongkan untuk menggunakan nominal iuran yang ditetapkan</p>
             </div>

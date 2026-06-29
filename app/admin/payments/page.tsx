@@ -2,15 +2,34 @@
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import Image from 'next/image'
 import { useSearchParams } from 'next/navigation'
-import toast from 'react-hot-toast'
+import { toast } from '@/lib/toast'
 import {
   Search, CheckCircle, XCircle, Download,
   RefreshCw, Loader2, ZoomIn, X, AlertCircle
 } from 'lucide-react'
-import { paymentApi, exportApi, formatRupiah, MONTHS_ID, getApiImageUrl } from '@/lib/api'
+import { paymentApi, exportApi, householdApi, formatRupiah, MONTHS_ID, getApiImageUrl } from '@/lib/api'
 import type { Payment } from '@/lib/types'
 import StatusBadge from '@/components/StatusBadge'
 import Modal from '@/components/ui/Modal'
+import AnimatedSelect from '@/components/ui/AnimatedSelect'
+import FilterPanel from '@/components/ui/FilterPanel'
+import { motion, AnimatePresence } from 'motion/react'
+
+const YEAR_NOW = new Date().getFullYear()
+const YEAR_OPTIONS = [YEAR_NOW - 3, YEAR_NOW - 2, YEAR_NOW - 1, YEAR_NOW].map((y) => ({
+  value: String(y),
+  label: String(y),
+}))
+const STATUS_OPTIONS = [
+  { value: '', label: 'Semua' },
+  { value: 'PENDING', label: 'Menunggu' },
+  { value: 'VERIFIED', label: 'Terverifikasi' },
+  { value: 'REJECTED', label: 'Ditolak' },
+]
+const MONTH_OPTIONS = [
+  { value: '', label: 'Semua' },
+  ...MONTHS_ID.map((m, i) => ({ value: String(i + 1), label: m })),
+]
 
 function AdminPaymentsContent() {
   const searchParams = useSearchParams()
@@ -25,6 +44,8 @@ function AdminPaymentsContent() {
   const [verifyNotes, setVerifyNotes] = useState('')
   const [verifying, setVerifying] = useState(false)
   const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 })
+  const [activeHouseholds, setActiveHouseholds] = useState(0)
+  const [verifiedCount, setVerifiedCount] = useState(0)
 
   const loadPayments = useCallback(async () => {
     setLoading(true)
@@ -45,6 +66,30 @@ function AdminPaymentsContent() {
   useEffect(() => {
     loadPayments()
   }, [loadPayments])
+
+  // Progress pembayaran IPL: jumlah KK terverifikasi vs total KK aktif (per bulan/tahun)
+  const loadProgress = useCallback(async () => {
+    if (!filterMonth) return
+    try {
+      const [hh, verified] = await Promise.all([
+        householdApi.list({ active: true }),
+        paymentApi.list({
+          month: parseInt(filterMonth),
+          year: parseInt(filterYear),
+          status: 'VERIFIED',
+          limit: 100,
+        }),
+      ])
+      setActiveHouseholds(hh.data.data.length)
+      setVerifiedCount(verified.data.meta.total)
+    } catch {
+      /* abaikan — progress bar opsional */
+    }
+  }, [filterMonth, filterYear])
+
+  useEffect(() => {
+    loadProgress()
+  }, [loadProgress, payments])
 
   async function handleVerify(status: 'VERIFIED' | 'REJECTED') {
     if (!selectedPayment) return
@@ -85,17 +130,17 @@ function AdminPaymentsContent() {
   const pendingCount = payments.filter((p) => p.status === 'PENDING').length
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className="p-3 sm:p-4 lg:p-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
         <div>
-          <h1 className="page-header">Pembayaran IPL</h1>
-          <p className="text-gray-500 text-sm">
+          <h1 className="page-header text-[1.3rem] sm:text-[1.6rem] lg:text-[2rem]">Pembayaran IPL</h1>
+          <p className="text-slate-500 text-xs sm:text-sm">
             {meta.total} total · {pendingCount} menunggu verifikasi
           </p>
         </div>
-        <div className="sm:ml-auto flex gap-2">
-          <button onClick={loadPayments} className="btn-secondary">
+        <div className="sm:ml-auto grid grid-cols-2 sm:flex gap-2 w-full sm:w-auto">
+          <button onClick={loadPayments} className="btn-secondary justify-center min-h-10">
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
           </button>
           <button
@@ -103,7 +148,7 @@ function AdminPaymentsContent() {
               month: filterMonth ? parseInt(filterMonth) : undefined,
               year: filterYear ? parseInt(filterYear) : undefined,
             }).catch(() => toast.error('Gagal export'))}
-            className="btn-secondary text-sm"
+            className="btn-secondary text-sm justify-center min-h-10 col-span-1 sm:col-auto"
           >
             <Download size={15} />
             Export Excel
@@ -111,48 +156,48 @@ function AdminPaymentsContent() {
         </div>
       </div>
 
+      {/* Progress pembayaran IPL */}
+      {filterMonth && activeHouseholds > 0 && (
+        <div className="card mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-semibold text-slate-700">
+              Progress IPL {MONTHS_ID[parseInt(filterMonth) - 1]} {filterYear}
+            </p>
+            <p className="text-sm font-bold text-brand-700">
+              {verifiedCount}<span className="text-slate-400 font-medium">/{activeHouseholds} KK</span>
+            </p>
+          </div>
+          <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden">
+            <motion.div
+              className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-700"
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.min(100, Math.round((verifiedCount / activeHouseholds) * 100))}%` }}
+              transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+            />
+          </div>
+          <p className="text-xs text-slate-500 mt-2">
+            {Math.round((verifiedCount / activeHouseholds) * 100)}% terverifikasi ·
+            {' '}{Math.max(0, activeHouseholds - verifiedCount)} KK belum bayar
+          </p>
+        </div>
+      )}
+
       {/* Filters */}
-      <div className="card mb-4">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <FilterPanel activeCount={(filterStatus ? 1 : 0) + (searchQuery ? 1 : 0)}>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
           <div>
             <label className="input-label">Status</label>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="input-field text-sm"
-            >
-              <option value="">Semua</option>
-              <option value="PENDING">Menunggu</option>
-              <option value="VERIFIED">Terverifikasi</option>
-              <option value="REJECTED">Ditolak</option>
-            </select>
+            <AnimatedSelect value={filterStatus} onChange={setFilterStatus} options={STATUS_OPTIONS} />
           </div>
           <div>
             <label className="input-label">Bulan</label>
-            <select
-              value={filterMonth}
-              onChange={(e) => setFilterMonth(e.target.value)}
-              className="input-field text-sm"
-            >
-              <option value="">Semua</option>
-              {MONTHS_ID.map((m, i) => (
-                <option key={i + 1} value={i + 1}>{m}</option>
-              ))}
-            </select>
+            <AnimatedSelect value={filterMonth} onChange={setFilterMonth} options={MONTH_OPTIONS} />
           </div>
           <div>
             <label className="input-label">Tahun</label>
-            <select
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-              className="input-field text-sm"
-            >
-              {[2023, 2024, 2025, 2026].map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+            <AnimatedSelect value={filterYear} onChange={setFilterYear} options={YEAR_OPTIONS} />
           </div>
-          <div>
+          <div className="col-span-2 lg:col-span-1">
             <label className="input-label">Cari KK</label>
             <div className="relative">
               <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -166,7 +211,7 @@ function AdminPaymentsContent() {
             </div>
           </div>
         </div>
-      </div>
+      </FilterPanel>
 
       {/* Table / List */}
       {loading ? (
@@ -179,11 +224,11 @@ function AdminPaymentsContent() {
           <p>Tidak ada data pembayaran</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {filtered.map((payment) => (
             <div
               key={payment.id}
-              className={`card-hover flex items-center gap-3 cursor-pointer ${
+              className={`card-hover flex items-start sm:items-center gap-2.5 sm:gap-3 cursor-pointer ${
                 payment.status === 'PENDING' ? 'border-amber-200 bg-amber-50/30' : ''
               }`}
               onClick={() => {
@@ -192,22 +237,22 @@ function AdminPaymentsContent() {
               }}
             >
               {/* Block Badge */}
-              <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-xs font-bold text-gray-700 flex-shrink-0">
+              <div className="w-9 h-9 sm:w-10 sm:h-10 bg-gray-100 rounded-xl flex items-center justify-center text-[11px] sm:text-xs font-bold text-gray-700 flex-shrink-0">
                 {payment.household.block}{payment.household.number}
               </div>
 
               {/* Info */}
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-900 text-sm truncate">{payment.household.name}</p>
-                <p className="text-xs text-gray-400">
+                <p className="font-medium text-gray-900 text-sm sm:text-sm truncate">{payment.household.name}</p>
+                <p className="text-[11px] sm:text-xs text-gray-400">
                   {MONTHS_ID[payment.month - 1]} {payment.year} · {formatRupiah(payment.amount)}
                 </p>
               </div>
 
               {/* Status & Date */}
-              <div className="text-right flex-shrink-0">
+              <div className="text-right flex-shrink-0 ml-auto">
                 <StatusBadge status={payment.status} size="sm" />
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-[11px] sm:text-xs text-gray-400 mt-1">
                   {new Date(payment.paidAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
                 </p>
               </div>
@@ -215,7 +260,7 @@ function AdminPaymentsContent() {
               {/* Proof image indicator */}
               {payment.proofImage && (
                 <div
-                  className="w-10 h-10 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 relative"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 relative"
                   onClick={(e) => {
                     e.stopPropagation()
                     setImageModal(getApiImageUrl(payment.proofImage))
@@ -237,10 +282,10 @@ function AdminPaymentsContent() {
         size="lg"
       >
         {selectedPayment && (
-          <div className="p-5 space-y-4">
+          <div className="p-4 sm:p-5 space-y-4">
             {/* Household Info */}
             <div className="bg-gray-50 rounded-xl p-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-gray-500 text-xs mb-0.5">Nama KK</p>
                   <p className="font-semibold">{selectedPayment.household.name}</p>
@@ -304,7 +349,7 @@ function AdminPaymentsContent() {
                   className="input-field text-sm resize-none"
                   rows={2}
                 />
-                <div className="flex gap-3 mt-3">
+                <div className="flex flex-col sm:flex-row gap-3 mt-3">
                   <button
                     onClick={() => handleVerify('REJECTED')}
                     disabled={verifying}
@@ -327,10 +372,10 @@ function AdminPaymentsContent() {
 
             {/* Actions for verified/rejected */}
             {selectedPayment.status !== 'PENDING' && (
-              <div className="flex gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={() => handleDelete(selectedPayment.id)}
-                  className="btn-danger text-sm"
+                  className="btn-danger text-sm justify-center"
                 >
                   Hapus Data
                 </button>
@@ -341,22 +386,36 @@ function AdminPaymentsContent() {
       </Modal>
 
       {/* Image Zoom Modal */}
-      {imageModal && (
-        <div
-          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setImageModal(null)}
-        >
-          <button
-            className="absolute top-4 right-4 w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/30"
+      <AnimatePresence>
+        {imageModal && (
+          <motion.div
+            className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
             onClick={() => setImageModal(null)}
           >
-            <X size={20} />
-          </button>
-          <div className="relative max-w-full max-h-full w-full h-full">
-            <Image src={imageModal} alt="Bukti" fill className="object-contain" />
-          </div>
-        </div>
-      )}
+            <button
+              className="absolute top-4 right-4 w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/30"
+              onClick={() => setImageModal(null)}
+              aria-label="Tutup"
+            >
+              <X size={20} />
+            </button>
+            <motion.div
+              className="relative max-w-full max-h-full w-full h-full"
+              initial={{ scale: 0.88, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 32, mass: 0.9 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Image src={imageModal} alt="Bukti" fill className="object-contain" />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

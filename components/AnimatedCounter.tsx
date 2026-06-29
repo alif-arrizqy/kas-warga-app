@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { gsap } from 'gsap'
 
 interface AnimatedCounterProps {
   value: number
@@ -15,7 +14,7 @@ export default function AnimatedCounter({
   value,
   prefix = '',
   suffix = '',
-  duration = 1.5,
+  duration = 1200,
   className = '',
   formatter,
 }: AnimatedCounterProps) {
@@ -23,29 +22,31 @@ export default function AnimatedCounter({
   const prevValue = useRef(0)
 
   useEffect(() => {
-    if (!ref.current) return
     const el = ref.current
+    if (!el) return
     const from = prevValue.current
-    const obj = { val: from }
+    const diff = value - from
+    if (diff === 0) return
 
-    gsap.to(obj, {
-      val: value,
-      duration,
-      ease: 'power2.out',
-      onUpdate: () => {
-        const current = Math.round(obj.val)
-        el.textContent = `${prefix}${formatter ? formatter(current) : current.toLocaleString('id-ID')}${suffix}`
-      },
-    })
+    const start = performance.now()
+    let raf: number
 
-    prevValue.current = value
+    function tick(now: number) {
+      const t = Math.min((now - start) / duration, 1)
+      const eased = 1 - (1 - t) ** 3 // ease-out-cubic
+      const current = Math.round(from + diff * eased)
+      el!.textContent = `${prefix}${formatter ? formatter(current) : current.toLocaleString('id-ID')}${suffix}`
+      if (t < 1) raf = requestAnimationFrame(tick)
+      else prevValue.current = value
+    }
+
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
   }, [value, duration, prefix, suffix, formatter])
 
   return (
     <span ref={ref} className={className}>
-      {prefix}
-      {formatter ? formatter(0) : '0'}
-      {suffix}
+      {prefix}{formatter ? formatter(0) : '0'}{suffix}
     </span>
   )
 }

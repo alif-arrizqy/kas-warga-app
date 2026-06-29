@@ -1,11 +1,11 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
-import toast from 'react-hot-toast'
+import { toast } from '@/lib/toast'
 import {
   Plus, Search, Edit2, UserX, UserCheck, Download,
   RefreshCw, Loader2, Users, Phone
 } from 'lucide-react'
-import { householdApi, exportApi } from '@/lib/api'
+import { householdApi, exportApi, formatPhoneInput, isValidPhone } from '@/lib/api'
 import type { Household } from '@/lib/types'
 import Modal from '@/components/ui/Modal'
 
@@ -55,6 +55,10 @@ export default function AdminHouseholdsPage() {
       toast.error('Nama, blok, dan nomor rumah wajib diisi')
       return
     }
+    if (form.phone && !isValidPhone(form.phone)) {
+      toast.error('No. HP harus 11–13 digit angka')
+      return
+    }
 
     setSaving(true)
     try {
@@ -101,24 +105,24 @@ export default function AdminHouseholdsPage() {
   const activeCount = households.filter((hh) => hh.isActive).length
 
   return (
-    <div className="p-4 lg:p-6">
+    <div className="p-3 sm:p-4 lg:p-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
         <div>
-          <h1 className="page-header">Data Warga / KK</h1>
-          <p className="text-gray-500 text-sm">
+          <h1 className="page-header text-[1.3rem] sm:text-[1.6rem] lg:text-[2rem]">Data Warga / KK</h1>
+          <p className="text-slate-500 text-xs sm:text-sm">
             {activeCount} KK aktif dari {households.length} total
           </p>
         </div>
-        <div className="sm:ml-auto flex gap-2">
-          <button onClick={loadHouseholds} className="btn-secondary">
+        <div className="sm:ml-auto grid grid-cols-3 sm:flex gap-2 w-full sm:w-auto">
+          <button onClick={loadHouseholds} className="btn-secondary justify-center min-h-10">
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button onClick={() => exportApi.households().catch(() => toast.error('Gagal export'))} className="btn-secondary text-sm">
+          <button onClick={() => exportApi.households().catch(() => toast.error('Gagal export'))} className="btn-secondary text-sm justify-center min-h-10">
             <Download size={15} />
             Export
           </button>
-          <button onClick={openAdd} className="btn-primary text-sm">
+          <button onClick={openAdd} className="btn-primary text-sm justify-center min-h-10">
             <Plus size={15} />
             Tambah KK
           </button>
@@ -140,20 +144,20 @@ export default function AdminHouseholdsPage() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 mb-4">
         <div className="card text-center">
           <Users size={20} className="text-brand-600 mx-auto mb-1" />
-          <p className="text-2xl font-bold">{activeCount}</p>
+          <p className="text-xl sm:text-2xl font-bold">{activeCount}</p>
           <p className="text-xs text-gray-500">KK Aktif</p>
         </div>
         <div className="card text-center">
           <Users size={20} className="text-gray-400 mx-auto mb-1" />
-          <p className="text-2xl font-bold">{households.length - activeCount}</p>
+          <p className="text-xl sm:text-2xl font-bold">{households.length - activeCount}</p>
           <p className="text-xs text-gray-500">Tidak Aktif</p>
         </div>
         <div className="card text-center">
           <Users size={20} className="text-blue-600 mx-auto mb-1" />
-          <p className="text-2xl font-bold">{households.length}</p>
+          <p className="text-xl sm:text-2xl font-bold">{households.length}</p>
           <p className="text-xs text-gray-500">Total KK</p>
         </div>
       </div>
@@ -164,14 +168,14 @@ export default function AdminHouseholdsPage() {
           <Loader2 size={32} className="animate-spin text-brand-600" />
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {filtered.map((hh) => (
             <div
               key={hh.id}
-              className={`card flex items-center gap-3 ${!hh.isActive ? 'opacity-60' : ''}`}
+              className={`card flex items-start sm:items-center gap-2.5 sm:gap-3 ${!hh.isActive ? 'opacity-60' : ''}`}
             >
               {/* Block badge */}
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+              <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-[11px] sm:text-xs font-bold flex-shrink-0 ${
                 hh.isActive ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'
               }`}>
                 {hh.block}{hh.number}
@@ -183,7 +187,7 @@ export default function AdminHouseholdsPage() {
                   {hh.name}
                   {!hh.isActive && <span className="ml-2 text-xs text-gray-400">(Tidak aktif)</span>}
                 </p>
-                <p className="text-xs text-gray-400 flex items-center gap-1">
+                <p className="text-[11px] sm:text-xs text-gray-400 flex items-center gap-1 flex-wrap">
                   Blok {hh.block} No. {hh.number}
                   {hh.phone && (
                     <>
@@ -198,17 +202,17 @@ export default function AdminHouseholdsPage() {
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1 flex-shrink-0 ml-auto">
                 <button
                   onClick={() => openEdit(hh)}
-                  className="p-2 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
+                  className="p-2.5 sm:p-2 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors"
                   title="Edit"
                 >
                   <Edit2 size={15} />
                 </button>
                 <button
                   onClick={() => toggleActive(hh)}
-                  className={`p-2 rounded-lg transition-colors ${
+                  className={`p-2.5 sm:p-2 rounded-lg transition-colors ${
                     hh.isActive
                       ? 'text-gray-400 hover:text-red-500 hover:bg-red-50'
                       : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
@@ -272,9 +276,10 @@ export default function AdminHouseholdsPage() {
             <label className="input-label">No. HP (opsional)</label>
             <input
               type="tel"
+              inputMode="numeric"
               value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder="08xx-xxxx-xxxx"
+              onChange={(e) => setForm({ ...form, phone: formatPhoneInput(e.target.value) })}
+              placeholder="62891-1234-1234"
               className="input-field"
             />
           </div>

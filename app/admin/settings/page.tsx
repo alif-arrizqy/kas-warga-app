@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
-import toast from 'react-hot-toast'
+import { toast } from '@/lib/toast'
 import { Settings, Save, Loader2, Lock, Eye, EyeOff } from 'lucide-react'
-import { settingApi, authApi } from '@/lib/api'
+import { settingApi, authApi, formatMoneyInput, formatPhoneInput, isValidPhone, sanitizeDigits } from '@/lib/api'
 
 interface SettingsData {
   neighborhood_name: string
@@ -50,9 +50,16 @@ export default function AdminSettingsPage() {
   }
 
   async function handleSave() {
+    if (settings.treasurer_phone && !isValidPhone(settings.treasurer_phone)) {
+      toast.error('No. HP bendahara harus 11–13 digit angka')
+      return
+    }
     setSaving(true)
     try {
-      await settingApi.update(settings)
+      await settingApi.update({
+        ...settings,
+        ipl_amount: sanitizeDigits(settings.ipl_amount),
+      })
       toast.success('Pengaturan berhasil disimpan!')
     } catch {
       toast.error('Gagal menyimpan pengaturan')
@@ -96,7 +103,7 @@ export default function AdminSettingsPage() {
   )
 
   return (
-    <div className="p-4 lg:p-6 max-w-2xl">
+    <div className="p-4 lg:p-6">
       <div className="mb-6">
         <h1 className="page-header flex items-center gap-2">
           <Settings size={22} />
@@ -106,68 +113,72 @@ export default function AdminSettingsPage() {
       </div>
 
       <div className="space-y-5">
-        {/* General Settings */}
-        <div className="card">
-          <h2 className="font-semibold text-gray-900 mb-4">Informasi Perumahan</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="input-label">Nama Perumahan</label>
-              <input
-                type="text"
-                value={settings.neighborhood_name}
-                onChange={(e) => setSettings({ ...settings, neighborhood_name: e.target.value })}
-                className="input-field"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+        <div className="grid lg:grid-cols-2 gap-5 items-start">
+          {/* General Settings */}
+          <div className="card">
+            <h2 className="font-semibold text-gray-900 mb-4">Informasi Perumahan</h2>
+            <div className="space-y-4">
               <div>
-                <label className="input-label">Iuran IPL per Bulan (Rp)</label>
+                <label className="input-label">Nama Perumahan</label>
                 <input
-                  type="number"
-                  value={settings.ipl_amount}
-                  onChange={(e) => setSettings({ ...settings, ipl_amount: e.target.value })}
+                  type="text"
+                  value={settings.neighborhood_name}
+                  onChange={(e) => setSettings({ ...settings, neighborhood_name: e.target.value })}
                   className="input-field"
-                  placeholder="15000"
                 />
               </div>
-              <div>
-                <label className="input-label">Tanggal Jatuh Tempo</label>
-                <input
-                  type="number"
-                  value={settings.payment_due_day}
-                  onChange={(e) => setSettings({ ...settings, payment_due_day: e.target.value })}
-                  className="input-field"
-                  placeholder="10"
-                  min="1"
-                  max="28"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="input-label">Iuran IPL per Bulan (Rp)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={settings.ipl_amount}
+                    onChange={(e) => setSettings({ ...settings, ipl_amount: formatMoneyInput(e.target.value) })}
+                    className="input-field"
+                    placeholder="15.000"
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Tanggal Jatuh Tempo</label>
+                  <input
+                    type="number"
+                    value={settings.payment_due_day}
+                    onChange={(e) => setSettings({ ...settings, payment_due_day: e.target.value })}
+                    className="input-field"
+                    placeholder="10"
+                    min="1"
+                    max="28"
+                  />
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Treasurer Info */}
-        <div className="card">
-          <h2 className="font-semibold text-gray-900 mb-4">Info Bendahara / Humas</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="input-label">Nama Bendahara</label>
-              <input
-                type="text"
-                value={settings.treasurer_name}
-                onChange={(e) => setSettings({ ...settings, treasurer_name: e.target.value })}
-                className="input-field"
-              />
-            </div>
-            <div>
-              <label className="input-label">No. HP Bendahara</label>
-              <input
-                type="tel"
-                value={settings.treasurer_phone}
-                onChange={(e) => setSettings({ ...settings, treasurer_phone: e.target.value })}
-                className="input-field"
-                placeholder="08xx-xxxx-xxxx"
-              />
+          {/* Treasurer Info */}
+          <div className="card">
+            <h2 className="font-semibold text-gray-900 mb-4">Info Bendahara / Humas</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="input-label">Nama Bendahara</label>
+                <input
+                  type="text"
+                  value={settings.treasurer_name}
+                  onChange={(e) => setSettings({ ...settings, treasurer_name: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="input-label">No. HP Bendahara</label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={settings.treasurer_phone}
+                  onChange={(e) => setSettings({ ...settings, treasurer_phone: formatPhoneInput(e.target.value) })}
+                  className="input-field"
+                  placeholder="62891-1234-1234"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -175,7 +186,7 @@ export default function AdminSettingsPage() {
         {/* Bank Info */}
         <div className="card">
           <h2 className="font-semibold text-gray-900 mb-4">Rekening Bank Transfer</h2>
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="input-label">Nama Bank</label>
               <input
@@ -190,10 +201,11 @@ export default function AdminSettingsPage() {
               <label className="input-label">Nomor Rekening</label>
               <input
                 type="text"
+                inputMode="numeric"
                 value={settings.bank_account}
-                onChange={(e) => setSettings({ ...settings, bank_account: e.target.value })}
+                onChange={(e) => setSettings({ ...settings, bank_account: sanitizeDigits(e.target.value) })}
                 className="input-field"
-                placeholder="Nomor rekening"
+                placeholder="Nomor rekening (angka)"
               />
             </div>
             <div>

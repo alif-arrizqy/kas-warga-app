@@ -3,19 +3,21 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   Home, Users, Wallet, TrendingUp, TrendingDown, CheckCircle,
-  Clock, AlertCircle, ArrowRight, Plus, RefreshCw, Calendar
+  Clock, ArrowRight, Plus, RefreshCw, Calendar, Search, Info
 } from 'lucide-react'
-import { dashboardApi, formatRupiah, MONTHS_ID } from '@/lib/api'
-import type { DashboardData } from '@/lib/types'
+import { dashboardApi, transactionApi, formatRupiah, MONTHS_ID } from '@/lib/api'
+import type { DashboardData, Transaction } from '@/lib/types'
 import AnimatedCounter from '@/components/AnimatedCounter'
 import StatusBadge from '@/components/StatusBadge'
 import PoweredBy from '@/components/PoweredBy'
-import { motion, AnimatePresence } from 'motion/react'
+import Modal from '@/components/ui/Modal'
 
 export default function HomePage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [showUnpaid, setShowUnpaid] = useState(false)
+  const [kasOpen, setKasOpen] = useState(false)
+  const [kasTx, setKasTx] = useState<Transaction[]>([])
+  const [kasLoading, setKasLoading] = useState(false)
 
   useEffect(() => {
     loadDashboard()
@@ -30,6 +32,19 @@ export default function HomePage() {
       // fallback silently
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function openKasDetail() {
+    setKasOpen(true)
+    setKasLoading(true)
+    try {
+      const res = await transactionApi.list({ limit: 30 })
+      setKasTx(res.data.data)
+    } catch {
+      setKasTx([])
+    } finally {
+      setKasLoading(false)
     }
   }
 
@@ -67,8 +82,11 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Total Kas - Main Highlight */}
-          <div className="mt-6 bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/20">
+          <button
+            type="button"
+            onClick={openKasDetail}
+            className="mt-6 w-full text-left bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/20 hover:bg-white/15 transition-colors"
+          >
             <p className="text-brand-200 text-sm mb-1">Total Kas Keseluruhan</p>
             <div className="text-4xl font-extrabold tracking-tight">
               <AnimatedCounter
@@ -80,14 +98,15 @@ export default function HomePage() {
             <div className="flex items-center gap-4 mt-3 text-sm text-brand-200">
               <span className="flex items-center gap-1">
                 <TrendingUp size={14} />
-                Masuk: {formatRupiah((data?.summary.totalIPLVerified || 0) + (data?.summary.totalIncome || 0))}
+                Masuk: {formatRupiah(data?.summary.totalIncome || 0)}
               </span>
               <span className="flex items-center gap-1">
                 <TrendingDown size={14} />
                 Keluar: {formatRupiah(data?.summary.totalExpense || 0)}
               </span>
             </div>
-          </div>
+            <p className="text-[11px] text-brand-300 mt-3">Ketuk untuk lihat detail keuangan</p>
+          </button>
         </div>
       </div>
 
@@ -141,50 +160,18 @@ export default function HomePage() {
             <p className="text-xs text-gray-400 mt-1">Kepala Keluarga</p>
           </div>
 
-          {/* Belum Bayar */}
-          <div
-            className={`card flex flex-col cursor-pointer transition-all ${data?.summary.unpaidCount ? 'border-red-200 bg-red-50/50' : ''}`}
-            onClick={() => setShowUnpaid(!showUnpaid)}
-          >
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${data?.summary.unpaidCount ? 'bg-red-100' : 'bg-gray-100'}`}>
-              <AlertCircle size={18} className={data?.summary.unpaidCount ? 'text-red-600' : 'text-gray-400'} />
+          {/* Cek Tagihan */}
+          <Link href="/tagihan" className="card flex flex-col hover:border-brand-200 transition-colors">
+            <div className="w-9 h-9 bg-brand-100 rounded-xl flex items-center justify-center mb-3">
+              <Search size={18} className="text-brand-600" />
             </div>
-            <p className="text-xs text-gray-500 mb-1">Belum Bayar</p>
-            <p className={`text-2xl font-bold ${data?.summary.unpaidCount ? 'text-red-600' : 'text-gray-900'}`}>
-              <AnimatedCounter value={data?.summary.unpaidCount || 0} />
+            <p className="text-xs text-gray-500 mb-1">Cek Tagihan</p>
+            <p className="text-sm font-bold text-brand-800 leading-snug">Lihat status IPL rumah Anda</p>
+            <p className="text-xs text-brand-600 mt-auto pt-2 flex items-center gap-1">
+              Cari <ArrowRight size={12} />
             </p>
-            <p className="text-xs text-gray-400 mt-1">KK bulan ini</p>
-          </div>
+          </Link>
         </div>
-
-        {/* Daftar Belum Bayar (expandable) */}
-        <AnimatePresence>
-          {showUnpaid && data?.unpaidHouseholds && data.unpaidHouseholds.length > 0 && (
-            <motion.div
-              className="card mb-5 overflow-hidden"
-              initial={{ opacity: 0, y: -8, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.98 }}
-              transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
-            >
-              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <AlertCircle size={16} className="text-red-500" />
-                Belum Bayar Bulan Ini
-              </h3>
-              <div className="space-y-2">
-                {data.unpaidHouseholds.map((hh) => (
-                  <div key={hh.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{hh.name}</p>
-                      <p className="text-xs text-gray-400">Blok {hh.block} No. {hh.number}</p>
-                    </div>
-                    <span className="badge-rejected">Belum Bayar</span>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Pembayaran Bulan Ini */}
         <div className="card mb-5">
@@ -252,7 +239,7 @@ export default function HomePage() {
         )}
 
         {/* Info Banner */}
-        <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 mb-5 flex items-start gap-3">
+        <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 mb-4 flex items-start gap-3">
           <div className="w-8 h-8 bg-brand-100 rounded-lg flex items-center justify-center flex-shrink-0">
             <Clock size={16} className="text-brand-600" />
           </div>
@@ -268,15 +255,31 @@ export default function HomePage() {
           </div>
         </div>
 
+        <Link
+          href="/tentang"
+          className="mb-5 flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3.5 hover:border-slate-300 transition-colors"
+        >
+          <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center flex-shrink-0">
+            <Info size={15} className="text-slate-600" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-900">Tentang Aplikasi</p>
+            <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+              KasWarga membantu warga memantau kas perumahan secara transparan.
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-brand-700 flex-shrink-0 pt-0.5">Selengkapnya</span>
+        </Link>
+
         <PoweredBy className="text-slate-400 mt-1" />
       </div>
 
-      {/* Bottom Nav / CTA — pb-safe handles iOS home indicator */}
+      {/* Bottom Nav / CTA */}
       <div
         className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-100 px-4 pt-3 pb-safe"
         style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))' }}
       >
-        <div className="max-w-lg mx-auto flex items-center gap-3">
+        <div className="max-w-lg mx-auto flex items-center gap-2">
           <button
             onClick={loadDashboard}
             className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
@@ -284,12 +287,63 @@ export default function HomePage() {
           >
             <RefreshCw size={18} />
           </button>
-          <Link href="/submit" className="btn-primary flex-1 justify-center text-sm min-h-[44px]">
+          <Link href="/tagihan" className="btn-secondary flex-1 justify-center text-sm min-h-[44px]">
+            <Search size={16} />
+            Tagihan
+          </Link>
+          <Link href="/submit" className="btn-primary flex-[1.4] justify-center text-sm min-h-[44px]">
             <Plus size={18} />
-            Upload Bukti Bayar IPL
+            Bayar IPL
           </Link>
         </div>
       </div>
+
+      <Modal isOpen={kasOpen} onClose={() => setKasOpen(false)} title="Detail Keuangan Kas" size="lg">
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-xl bg-green-50 p-3 text-center">
+              <p className="text-[11px] text-green-700">Masuk</p>
+              <p className="text-sm font-bold text-green-800">{formatRupiah(data?.summary.totalIncome || 0)}</p>
+            </div>
+            <div className="rounded-xl bg-red-50 p-3 text-center">
+              <p className="text-[11px] text-red-700">Keluar</p>
+              <p className="text-sm font-bold text-red-800">{formatRupiah(data?.summary.totalExpense || 0)}</p>
+            </div>
+            <div className="rounded-xl bg-brand-50 p-3 text-center">
+              <p className="text-[11px] text-brand-700">Saldo</p>
+              <p className="text-sm font-bold text-brand-800">{formatRupiah(data?.summary.totalKas || 0)}</p>
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-800 mb-2">Transaksi terbaru</p>
+            {kasLoading ? (
+              <p className="text-sm text-slate-400 py-6 text-center">Memuat...</p>
+            ) : kasTx.length === 0 ? (
+              <p className="text-sm text-slate-400 py-6 text-center">Belum ada transaksi</p>
+            ) : (
+              <ul className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
+                {kasTx.map((t) => (
+                  <li key={t.id} className="py-2.5 flex items-center gap-2">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${t.type === 'INCOME' ? 'bg-green-100' : 'bg-red-100'}`}>
+                      {t.type === 'INCOME' ? <TrendingUp size={14} className="text-green-600" /> : <TrendingDown size={14} className="text-red-600" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-900 truncate">{t.description}</p>
+                      <p className="text-[11px] text-slate-400">
+                        {t.category ? `${t.category} · ` : ''}
+                        {new Date(t.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    </div>
+                    <p className={`text-sm font-semibold flex-shrink-0 ${t.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
+                      {t.type === 'INCOME' ? '+' : '-'}{formatRupiah(t.amount)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

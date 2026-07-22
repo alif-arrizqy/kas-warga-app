@@ -4,14 +4,22 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, CreditCard, ArrowLeftRight,
-  LogOut, Home, Settings, Menu, X, ChevronRight, ShieldCheck, ChevronsUpDown
+  LogOut, Home, Settings, Menu, X, ChevronRight, ShieldCheck, ChevronsUpDown, Search
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'motion/react'
 import DropdownMenu from '@/components/ui/DropdownMenu'
+import { authApi } from '@/lib/api'
+import {
+  clearAdminSession,
+  getStoredAdmin,
+  isSessionValid,
+} from '@/lib/auth-session'
 
 const baseNavItems = [
   { href: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/admin/payments', icon: CreditCard, label: 'Pembayaran IPL' },
+  { href: '/admin/payments/tagihan', icon: Search, label: 'Cek Tagihan' },
+  { href: '/admin/payments/recap', icon: CreditCard, label: 'Rekap IPL' },
   { href: '/admin/transactions', icon: ArrowLeftRight, label: 'Kas Masuk/Keluar' },
   { href: '/admin/households', icon: Users, label: 'Data Warga' },
   { href: '/admin/settings', icon: Settings, label: 'Pengaturan' },
@@ -27,25 +35,36 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (pathname === '/admin/login') return
-    const token = localStorage.getItem('kas_warga_token')
-    const adminRaw = token && localStorage.getItem('kas_warga_admin')
-    try {
-      if (!token || !adminRaw) throw new Error('unauthorized')
-      const parsed = JSON.parse(adminRaw)
-      if (!parsed?.name) throw new Error('invalid')
-      setAdminName(parsed.name)
-      setAdminRole(parsed?.role === 'super-admin' || parsed?.role === 'superadmin' ? 'super-admin' : 'admin')
-      setAuthorized(true)
-    } catch {
-      localStorage.removeItem('kas_warga_token')
-      localStorage.removeItem('kas_warga_admin')
-      router.replace('/admin/login')
+
+    let cancelled = false
+
+    async function verify() {
+      if (!isSessionValid()) {
+        clearAdminSession()
+        router.replace('/admin/login')
+        return
+      }
+      try {
+        const res = await authApi.me()
+        if (cancelled) return
+        const user = res.data.data
+        setAdminName(user.name || getStoredAdmin()?.name || '')
+        setAdminRole(
+          user.role === 'super-admin' || user.role === 'superadmin' ? 'super-admin' : 'admin'
+        )
+        setAuthorized(true)
+      } catch {
+        clearAdminSession()
+        router.replace('/admin/login')
+      }
     }
+
+    verify()
+    return () => { cancelled = true }
   }, [pathname, router])
 
   if (pathname === '/admin/login') return <>{children}</>
 
-  // Gate: jangan render dashboard sebelum auth terverifikasi (hindari flash sebelum redirect)
   if (!authorized) {
     return (
       <div className="min-h-dvh flex items-center justify-center">
@@ -55,8 +74,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   function logout() {
-    localStorage.removeItem('kas_warga_token')
-    localStorage.removeItem('kas_warga_admin')
+    clearAdminSession()
     router.push('/admin/login')
   }
 

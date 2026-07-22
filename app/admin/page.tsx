@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
-  Wallet, Users, TrendingUp, TrendingDown, CheckCircle, Clock, XCircle,
+  Wallet, Users, TrendingUp, CheckCircle, Clock,
   Download, ArrowRight, RefreshCw, AlertTriangle, FileSpreadsheet
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
@@ -84,24 +84,20 @@ export default function AdminDashboardPage() {
               />
             )}
           </div>
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <div className="bg-white/10 rounded-xl p-2 sm:p-3 text-center">
-              <p className="text-[10px] sm:text-[11px] text-brand-200 mb-1">IPL Masuk</p>
-              <p className="font-bold text-[11px] sm:text-sm break-words leading-tight">{formatRupiah(data?.summary.totalIPLVerified || 0)}</p>
-            </div>
-            <div className="bg-white/10 rounded-xl p-2 sm:p-3 text-center">
-              <p className="text-[10px] sm:text-[11px] text-brand-200 mb-1">Non-IPL</p>
+              <p className="text-[10px] sm:text-[11px] text-brand-200 mb-1">Kas Masuk</p>
               <p className="font-bold text-[11px] sm:text-sm break-words leading-tight">{formatRupiah(data?.summary.totalIncome || 0)}</p>
             </div>
             <div className="bg-white/10 rounded-xl p-2 sm:p-3 text-center">
-              <p className="text-[10px] sm:text-[11px] text-brand-200 mb-1">Keluar</p>
+              <p className="text-[10px] sm:text-[11px] text-brand-200 mb-1">Kas Keluar</p>
               <p className="font-bold text-[11px] sm:text-sm text-red-300 break-words leading-tight">{formatRupiah(data?.summary.totalExpense || 0)}</p>
             </div>
           </div>
         </div>
 
-        {/* Stat Cards — kompak horizontal di mobile, vertikal di desktop */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+        {/* Stat Cards — 3 kolom penuh lebar (sejajar hero kas) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
           <div className="card p-3 sm:p-5 flex sm:block items-center gap-3">
             <div className="w-9 h-9 bg-brand-100 rounded-xl flex items-center justify-center mb-0 sm:mb-3 flex-shrink-0">
               <Wallet size={18} className="text-brand-600" />
@@ -132,18 +128,6 @@ export default function AdminDashboardPage() {
               <p className="text-xs text-gray-500 mb-0.5 sm:mb-1">Sudah Bayar</p>
               <p className="text-[15px] sm:text-xl font-bold text-green-700">
                 {data?.summary.currentMonthPaidCount || 0}
-                <span className="text-sm text-gray-400 font-normal"> KK</span>
-              </p>
-            </div>
-          </div>
-          <div className="card p-3 sm:p-5 flex sm:block items-center gap-3">
-            <div className="w-9 h-9 bg-red-100 rounded-xl flex items-center justify-center mb-0 sm:mb-3 flex-shrink-0">
-              <XCircle size={18} className="text-red-600" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs text-gray-500 mb-0.5 sm:mb-1">Belum Bayar</p>
-              <p className="text-[15px] sm:text-xl font-bold text-red-700">
-                {data?.summary.unpaidCount || 0}
                 <span className="text-sm text-gray-400 font-normal"> KK</span>
               </p>
             </div>
@@ -191,7 +175,7 @@ export default function AdminDashboardPage() {
               <span className="text-xs text-gray-400 ml-auto sm:ml-0">.xlsx</span>
             </button>
             <button
-              onClick={() => exportApi.transactions(currentYear).catch(() => toast.error('Gagal export'))}
+              onClick={() => exportApi.transactions({ year: currentYear }).catch(() => toast.error('Gagal export'))}
               className="btn-secondary justify-start sm:justify-center sm:flex-col py-3 sm:py-4 gap-2.5 sm:gap-1.5 h-auto"
             >
               <FileSpreadsheet size={20} className="text-purple-600 flex-shrink-0" />

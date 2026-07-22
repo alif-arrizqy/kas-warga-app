@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from '@/lib/toast'
 import { Lock, User, Eye, EyeOff, Loader2, Home } from 'lucide-react'
 import { authApi } from '@/lib/api'
+import { clearAdminSession, saveAdminSession } from '@/lib/auth-session'
 import PoweredBy from '@/components/PoweredBy'
 
 export default function AdminLoginPage() {
@@ -15,7 +16,10 @@ export default function AdminLoginPage() {
 
   useEffect(() => {
     const token = localStorage.getItem('kas_warga_token')
-    if (token) router.replace('/admin')
+    if (!token) return
+    authApi.me()
+      .then(() => router.replace('/admin'))
+      .catch(() => clearAdminSession())
   }, [router])
 
   async function handleLogin(e: React.FormEvent) {
@@ -28,9 +32,8 @@ export default function AdminLoginPage() {
     setLoading(true)
     try {
       const res = await authApi.login(username, password)
-      const { token, admin } = res.data.data
-      localStorage.setItem('kas_warga_token', token)
-      localStorage.setItem('kas_warga_admin', JSON.stringify(admin))
+      const { token, admin, expiresIn } = res.data.data
+      saveAdminSession(token, admin, expiresIn || 12 * 3600)
       toast.success(`Selamat datang, ${admin.name}!`)
       router.push('/admin')
     } catch {

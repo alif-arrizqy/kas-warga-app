@@ -6,6 +6,7 @@ import { Edit3, Plus, RefreshCw, ShieldAlert, Trash2, UserCog, X } from 'lucide-
 import { toast } from '@/lib/toast'
 import { adminApi } from '@/lib/api'
 import type { AdminAccount, AdminUser } from '@/lib/types'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 type FormState = {
   username: string
@@ -22,6 +23,7 @@ export default function AdminManagementPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [admins, setAdmins] = useState<AdminAccount[]>([])
   const [form, setForm] = useState<FormState>(initialForm)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
 
   const isEditMode = useMemo(() => Boolean(editingId), [editingId])
 
@@ -111,11 +113,12 @@ export default function AdminManagementPage() {
     }
   }
 
-  async function removeAdmin(id: string) {
-    if (!window.confirm('Hapus admin ini?')) return
+  async function removeAdmin() {
+    if (!deleteId) return
     try {
-      await adminApi.delete(id)
+      await adminApi.delete(deleteId)
       toast.success('Admin berhasil dihapus')
+      setDeleteId(null)
       await loadAdmins()
     } catch (error: any) {
       toast.error(error?.response?.data?.message || 'Gagal menghapus admin')
@@ -240,7 +243,7 @@ export default function AdminManagementPage() {
                     </button>
                     <button
                       className="btn-danger !py-2 !px-3 justify-center min-h-9 active:scale-[0.98]"
-                      onClick={() => removeAdmin(admin.id)}
+                      onClick={() => setDeleteId(admin.id)}
                     >
                       <Trash2 size={14} />
                       Hapus
@@ -276,6 +279,16 @@ export default function AdminManagementPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        onConfirm={removeAdmin}
+        title="Hapus admin?"
+        message="Akun admin ini akan dihapus permanen."
+        confirmLabel="Hapus"
+        variant="danger"
+      />
     </div>
   )
 }

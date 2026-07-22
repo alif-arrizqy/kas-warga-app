@@ -31,6 +31,7 @@ export default function AnimatedSelect({
   className = '',
 }: AnimatedSelectProps) {
   const [open, setOpen] = useState(false)
+  // ItemText unmount saat dropdown tutup (AnimatePresence) — label harus di-render sendiri.
   const selected = options.find((o) => o.value === value)
 
   return (
@@ -41,15 +42,15 @@ export default function AnimatedSelect({
       onOpenChange={setOpen}
     >
       <Select.Trigger
-        className={`input-field flex items-center justify-between gap-2 text-left text-sm data-[placeholder]:text-slate-400 ${className}`}
+        className={`input-field flex w-full min-w-0 items-center justify-between gap-2 text-left text-sm text-slate-900 data-[placeholder]:text-slate-400 ${className}`}
         aria-label={placeholder}
       >
-        <Select.Value placeholder={placeholder}>
-          {selected ? selected.label : placeholder}
-        </Select.Value>
+        <span className="min-w-0 flex-1 truncate">
+          <Select.Value placeholder={placeholder}>{selected?.label}</Select.Value>
+        </span>
         <Select.Icon asChild>
-          <motion.span animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.18 }}>
-            <ChevronDown size={16} className="text-slate-400 flex-shrink-0" />
+          <motion.span className="shrink-0" animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.18 }}>
+            <ChevronDown size={16} className="text-slate-400" />
           </motion.span>
         </Select.Icon>
       </Select.Trigger>

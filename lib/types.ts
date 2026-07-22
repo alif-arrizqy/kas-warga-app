@@ -25,6 +25,7 @@ export interface Payment {
   verifiedBy: string | null
   createdAt: string
   household: Pick<Household, 'name' | 'block' | 'number' | 'phone'>
+  isAmountMismatch?: boolean
 }
 
 export interface Transaction {
@@ -36,6 +37,24 @@ export interface Transaction {
   date: string
   createdBy: string
   createdAt: string
+  proofImage?: string | null
+  paymentId?: string | null
+}
+
+export type BillStatus = 'UNPAID' | 'PENDING' | 'VERIFIED' | 'REJECTED'
+
+export interface BillItem {
+  month: number
+  year: number
+  amount: number
+  status: BillStatus
+  paymentId: string | null
+}
+
+export interface BillsResult {
+  household: Pick<Household, 'id' | 'name' | 'block' | 'number'>
+  standardAmount: number
+  bills: BillItem[]
 }
 
 export interface Setting {

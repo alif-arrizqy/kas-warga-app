@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { clearAdminSession } from '@/lib/auth-session'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -16,15 +17,14 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401 — redirect ke login jika di halaman admin
+// Handle 401 — clear session + redirect
 api.interceptors.response.use(
   (res) => res,
   (error) => {
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       const { pathname } = window.location
       if (pathname.startsWith('/admin') && !pathname.endsWith('/login')) {
-        localStorage.removeItem('kas_warga_token')
-        localStorage.removeItem('kas_warga_admin')
+        clearAdminSession()
         window.location.href = '/admin/login'
       }
     }
@@ -75,9 +75,25 @@ export const paymentApi = {
   get: (id: string) => api.get(`/api/payments/${id}`),
   submit: (formData: FormData) =>
     api.post('/api/payments', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  submitBatch: (formData: FormData) =>
+    api.post('/api/payments/batch', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  backfill: (data: {
+    year: number
+    items: { householdId: string; month: number; amount?: number }[]
+  }) => api.post('/api/payments/backfill', data),
+  update: (
+    id: string,
+    data: Partial<{ amount: number; month: number; year: number; notes: string }>
+  ) => api.patch(`/api/payments/${id}`, data),
   verify: (id: string, status: 'VERIFIED' | 'REJECTED', notes?: string) =>
     api.patch(`/api/payments/${id}/verify`, { status, notes }),
   delete: (id: string) => api.delete(`/api/payments/${id}`),
+}
+
+// ─── Bills ───────────────────────────────────────────────────────────────────
+export const billsApi = {
+  lookup: (params: { block?: string; number?: string; householdId?: string; months?: number }) =>
+    api.get('/api/bills', { params }),
 }
 
 // ─── Transactions ────────────────────────────────────────────────────────────
@@ -86,6 +102,8 @@ export const transactionApi = {
     api.get('/api/transactions', { params }),
   create: (data: { type: string; amount: number; description: string; category?: string; date: string }) =>
     api.post('/api/transactions', data),
+  createMultipart: (formData: FormData) =>
+    api.post('/api/transactions', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   update: (
     id: string,
     data: Partial<{ type: string; amount: number; description: string; category: string; date: string }>
@@ -116,9 +134,14 @@ export const exportApi = {
     const filename = month ? `IPL_Bulan${month}_${year}.xlsx` : `IPL_Rekap_${year}.xlsx`
     return downloadBlob(`/api/export/payments?${q}`, filename)
   },
-  transactions: (year?: number) => {
-    const y = year || new Date().getFullYear()
-    return downloadBlob(`/api/export/transactions?year=${y}`, `Keuangan_${y}.xlsx`)
+  transactions: (params?: { year?: number; month?: number }) => {
+    const y = params?.year || new Date().getFullYear()
+    const q = new URLSearchParams({ year: String(y) })
+    if (params?.month) q.set('month', String(params.month))
+    const filename = params?.month
+      ? `Keuangan_Bulan${params.month}_${y}.xlsx`
+      : `Keuangan_${y}.xlsx`
+    return downloadBlob(`/api/export/transactions?${q}`, filename)
   },
   households: () => downloadBlob('/api/export/households', 'Daftar_Warga.xlsx'),
 }

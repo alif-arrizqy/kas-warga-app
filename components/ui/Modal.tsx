@@ -36,7 +36,24 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
             </Dialog.Overlay>
 
             <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 pointer-events-none">
-              <Dialog.Content asChild forceMount onOpenAutoFocus={(e) => e.preventDefault()}>
+              <Dialog.Content
+                asChild
+                forceMount
+                onOpenAutoFocus={(e) => e.preventDefault()}
+                onPointerDownOutside={(e) => {
+                  // biarkan interaksi popover/select di dalam modal
+                  const t = e.target as HTMLElement
+                  if (t.closest('[data-radix-popper-content-wrapper], [data-slot=calendar]')) {
+                    e.preventDefault()
+                  }
+                }}
+                onInteractOutside={(e) => {
+                  const t = e.target as HTMLElement
+                  if (t.closest('[data-radix-popper-content-wrapper], [data-slot=calendar]')) {
+                    e.preventDefault()
+                  }
+                }}
+              >
                 <motion.div
                   className={`${sizes[size]} w-full bg-white rounded-2xl shadow-2xl max-h-[90vh] flex flex-col pointer-events-auto`}
                   initial={{ opacity: 0, y: 40, scale: 0.96 }}
@@ -53,7 +70,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
                       <X size={20} />
                     </Dialog.Close>
                   </div>
-                  <div className="overflow-y-auto flex-1">{children}</div>
+                  <div className="overflow-y-auto overflow-x-visible flex-1">{children}</div>
                 </motion.div>
               </Dialog.Content>
             </div>

@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { toast } from '@/lib/toast'
 import {
   Plus, TrendingUp, TrendingDown, Loader2, Trash2,
-  RefreshCw, Download, Wallet
+  RefreshCw, Download, Wallet, Upload, X
 } from 'lucide-react'
 import {
   transactionApi,
@@ -12,12 +12,18 @@ import {
   MONTHS_ID,
   formatMoneyInput,
   sanitizeDigits,
+  getApiImageUrl,
 } from '@/lib/api'
 import type { Transaction } from '@/lib/types'
 import Modal from '@/components/ui/Modal'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import AnimatedSelect from '@/components/ui/AnimatedSelect'
+import DatePicker from '@/components/ui/DatePicker'
 import FilterPanel from '@/components/ui/FilterPanel'
+import Pagination from '@/components/ui/Pagination'
+import ImagePreviewModal from '@/components/ui/ImagePreviewModal'
 import { motion } from 'motion/react'
+import Image from 'next/image'
 
 const CATEGORIES = {
   INCOME: ['Donasi', 'Denda', 'Kontribusi Acara', 'Lainnya'],
@@ -25,19 +31,21 @@ const CATEGORIES = {
 }
 
 const YEAR_NOW = new Date().getFullYear()
+const MONTH_NOW = new Date().getMonth() + 1
 const TYPE_OPTIONS = [
   { value: '', label: 'Semua' },
   { value: 'INCOME', label: 'Pemasukan' },
   { value: 'EXPENSE', label: 'Pengeluaran' },
 ]
-const MONTH_OPTIONS = [
-  { value: '', label: 'Semua' },
-  ...MONTHS_ID.map((m, i) => ({ value: String(i + 1), label: m })),
-]
-const YEAR_OPTIONS = [YEAR_NOW - 3, YEAR_NOW - 2, YEAR_NOW - 1, YEAR_NOW].map((y) => ({
-  value: String(y),
-  label: String(y),
-}))
+const YEAR_OPTIONS = [YEAR_NOW - 3, YEAR_NOW - 2, YEAR_NOW - 1, YEAR_NOW]
+  .filter((y) => y <= YEAR_NOW)
+  .map((y) => ({ value: String(y), label: String(y) }))
+
+function isFuture(year: number, month: number) {
+  return year > YEAR_NOW || (year === YEAR_NOW && month > MONTH_NOW)
+}
+
+const PAGE_SIZE = 20
 
 export default function AdminTransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -45,9 +53,19 @@ export default function AdminTransactionsPage() {
   const [filterType, setFilterType] = useState('')
   const [filterYear, setFilterYear] = useState(String(new Date().getFullYear()))
   const [filterMonth, setFilterMonth] = useState('')
+  const [page, setPage] = useState(1)
+  const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 })
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [exportMonth, setExportMonth] = useState(String(MONTH_NOW))
+  const [exportYear, setExportYear] = useState(String(YEAR_NOW))
+  const [selectedDetail, setSelectedDetail] = useState<Transaction | null>(null)
+  const [proofModal, setProofModal] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [summary, setSummary] = useState({ incomeTotal: 0, expenseTotal: 0, net: 0 })
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; desc: string } | null>(null)
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const [proofPreview, setProofPreview] = useState<string | null>(null)
 
   // Form state
   const [form, setForm] = useState({
@@ -58,6 +76,28 @@ export default function AdminTransactionsPage() {
     date: new Date().toISOString().split('T')[0],
   })
 
+  const monthOptions = [
+    { value: '', label: 'Semua' },
+    ...MONTHS_ID.map((m, i) => {
+      const month = i + 1
+      const y = parseInt(filterYear) || YEAR_NOW
+      return { value: String(month), label: m, future: isFuture(y, month) }
+    })
+      .filter((o) => !o.future)
+      .map(({ value, label }) => ({ value, label })),
+  ]
+
+  const exportMonthOptions = [
+    { value: '', label: 'Semua (tahunan)' },
+    ...MONTHS_ID.map((m, i) => {
+      const month = i + 1
+      const y = parseInt(exportYear) || YEAR_NOW
+      return { value: String(month), label: m, future: isFuture(y, month) }
+    })
+      .filter((o) => !o.future)
+      .map(({ value, label }) => ({ value, label })),
+  ]
+
   const loadTransactions = useCallback(async () => {
     setLoading(true)
     try {
@@ -65,18 +105,33 @@ export default function AdminTransactionsPage() {
         type: filterType || undefined,
         year: filterYear ? parseInt(filterYear) : undefined,
         month: filterMonth ? parseInt(filterMonth) : undefined,
-        limit: 100,
+        page,
+        limit: PAGE_SIZE,
       })
       setTransactions(res.data.data)
       setSummary(res.data.summary)
+      setMeta(res.data.meta)
     } finally {
       setLoading(false)
     }
-  }, [filterType, filterYear, filterMonth])
+  }, [filterType, filterYear, filterMonth, page])
 
   useEffect(() => {
     loadTransactions()
   }, [loadTransactions])
+
+  function onFilterType(v: string) {
+    setFilterType(v)
+    setPage(1)
+  }
+  function onFilterMonth(v: string) {
+    setFilterMonth(v)
+    setPage(1)
+  }
+  function onFilterYear(v: string) {
+    setFilterYear(v)
+    setPage(1)
+  }
 
   function resetForm() {
     setForm({
@@ -86,6 +141,8 @@ export default function AdminTransactionsPage() {
       category: '',
       date: new Date().toISOString().split('T')[0],
     })
+    setProofFile(null)
+    setProofPreview(null)
   }
 
   async function handleSave() {
@@ -97,13 +154,24 @@ export default function AdminTransactionsPage() {
 
     setSaving(true)
     try {
-      await transactionApi.create({
-        type: form.type,
-        amount: parseInt(normalizedAmount),
-        description: form.description,
-        category: form.category || undefined,
-        date: form.date,
-      })
+      if (proofFile) {
+        const fd = new FormData()
+        fd.append('type', form.type)
+        fd.append('amount', normalizedAmount)
+        fd.append('description', form.description)
+        if (form.category) fd.append('category', form.category)
+        fd.append('date', form.date)
+        fd.append('proofImage', proofFile)
+        await transactionApi.createMultipart(fd)
+      } else {
+        await transactionApi.create({
+          type: form.type,
+          amount: parseInt(normalizedAmount),
+          description: form.description,
+          category: form.category || undefined,
+          date: form.date,
+        })
+      }
       toast.success('Transaksi berhasil dicatat!')
       setShowAddModal(false)
       resetForm()
@@ -115,24 +183,33 @@ export default function AdminTransactionsPage() {
     }
   }
 
-  async function handleDelete(id: string, desc: string) {
-    if (!confirm(`Hapus transaksi "${desc}"?`)) return
+  async function handleDelete() {
+    if (!deleteTarget) return
     try {
-      await transactionApi.delete(id)
+      await transactionApi.delete(deleteTarget.id)
       toast.success('Transaksi dihapus')
+      setDeleteTarget(null)
       loadTransactions()
     } catch {
       toast.error('Gagal menghapus')
     }
   }
 
-  const groupedByMonth: Record<string, Transaction[]> = {}
-  transactions.forEach((t) => {
-    const d = new Date(t.date)
-    const key = `${MONTHS_ID[d.getMonth()]} ${d.getFullYear()}`
-    if (!groupedByMonth[key]) groupedByMonth[key] = []
-    groupedByMonth[key].push(t)
-  })
+  async function handleExport() {
+    const y = parseInt(exportYear)
+    const m = exportMonth ? parseInt(exportMonth) : undefined
+    if (m ? isFuture(y, m) : y > YEAR_NOW) {
+      toast.error('Tidak bisa export periode yang akan datang')
+      return
+    }
+    try {
+      await exportApi.transactions({ year: y, month: m })
+      setShowExportModal(false)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+      toast.error(msg || 'Gagal export')
+    }
+  }
 
   return (
     <div className="p-3 sm:p-4 lg:p-6">
@@ -146,7 +223,14 @@ export default function AdminTransactionsPage() {
           <button onClick={loadTransactions} className="btn-secondary justify-center min-h-10">
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button onClick={() => exportApi.transactions(parseInt(filterYear)).catch(() => toast.error('Gagal export'))} className="btn-secondary text-sm justify-center min-h-10">
+          <button
+            onClick={() => {
+              setExportMonth(filterMonth)
+              setExportYear(filterYear)
+              setShowExportModal(true)
+            }}
+            className="btn-secondary text-sm justify-center min-h-10"
+          >
             <Download size={15} />
             Export
           </button>
@@ -189,15 +273,15 @@ export default function AdminTransactionsPage() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3">
           <div>
             <label className="input-label">Tipe</label>
-            <AnimatedSelect value={filterType} onChange={setFilterType} options={TYPE_OPTIONS} />
+            <AnimatedSelect value={filterType} onChange={onFilterType} options={TYPE_OPTIONS} />
           </div>
           <div>
             <label className="input-label">Bulan</label>
-            <AnimatedSelect value={filterMonth} onChange={setFilterMonth} options={MONTH_OPTIONS} />
+            <AnimatedSelect value={filterMonth} onChange={onFilterMonth} options={monthOptions} />
           </div>
           <div className="col-span-2 sm:col-span-1">
             <label className="input-label">Tahun</label>
-            <AnimatedSelect value={filterYear} onChange={setFilterYear} options={YEAR_OPTIONS} />
+            <AnimatedSelect value={filterYear} onChange={onFilterYear} options={YEAR_OPTIONS} />
           </div>
         </div>
       </FilterPanel>
@@ -215,54 +299,50 @@ export default function AdminTransactionsPage() {
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
-          {Object.entries(groupedByMonth).map(([monthLabel, items]) => {
-            const monthIncome = items.filter((t) => t.type === 'INCOME').reduce((s, t) => s + t.amount, 0)
-            const monthExpense = items.filter((t) => t.type === 'EXPENSE').reduce((s, t) => s + t.amount, 0)
-            return (
-              <div key={monthLabel}>
-                <div className="flex items-center gap-2 sm:gap-3 mb-2">
-                  <h3 className="font-semibold text-gray-700 text-xs sm:text-sm">{monthLabel}</h3>
-                  <div className="flex-1 h-px bg-gray-100" />
-                  <span className="text-[11px] sm:text-xs text-green-600">+{formatRupiah(monthIncome)}</span>
-                  <span className="text-[11px] sm:text-xs text-red-600">-{formatRupiah(monthExpense)}</span>
-                </div>
-                <div className="space-y-2">
-                  {items.map((t) => (
-                    <div key={t.id} className="card-hover flex items-start sm:items-center gap-2.5 sm:gap-3">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                        t.type === 'INCOME' ? 'bg-green-100' : 'bg-red-100'
-                      }`}>
-                        {t.type === 'INCOME'
-                          ? <TrendingUp size={16} className="text-green-600" />
-                          : <TrendingDown size={16} className="text-red-600" />
-                        }
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 text-sm truncate">{t.description}</p>
-                        <p className="text-[11px] sm:text-xs text-gray-400">
-                          {t.category && `${t.category} · `}
-                          {new Date(t.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                          {' · '}{t.createdBy}
-                        </p>
-                      </div>
-                      <p className={`font-semibold text-xs sm:text-sm flex-shrink-0 ${
-                        t.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {t.type === 'INCOME' ? '+' : '-'}{formatRupiah(t.amount)}
-                      </p>
-                      <button
-                        onClick={() => handleDelete(t.id, t.description)}
-                        className="p-2.5 sm:p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex-shrink-0"
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
+        <div className="card p-0 overflow-hidden">
+          <ul className="divide-y divide-slate-100">
+            {transactions.map((t) => (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDetail(t)}
+                  className="w-full flex items-start sm:items-center gap-2.5 sm:gap-3 px-3 sm:px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+                >
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                    t.type === 'INCOME' ? 'bg-green-100' : 'bg-red-100'
+                  }`}>
+                    {t.type === 'INCOME'
+                      ? <TrendingUp size={16} className="text-green-600" />
+                      : <TrendingDown size={16} className="text-red-600" />
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 text-sm truncate">{t.description}</p>
+                    <p className="text-[11px] sm:text-xs text-gray-400">
+                      {t.category && `${t.category} · `}
+                      {new Date(t.date).toLocaleDateString('id-ID', {
+                        day: 'numeric', month: 'short', year: 'numeric',
+                      })}
+                      {' · '}{t.createdBy}
+                    </p>
+                  </div>
+                  <p className={`font-semibold text-xs sm:text-sm flex-shrink-0 ${
+                    t.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {t.type === 'INCOME' ? '+' : '-'}{formatRupiah(t.amount)}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="px-3 sm:px-4 pb-3">
+            <Pagination
+              page={meta.page}
+              totalPages={meta.totalPages}
+              total={meta.total}
+              onPageChange={setPage}
+            />
+          </div>
         </div>
       )}
 
@@ -308,11 +388,10 @@ export default function AdminTransactionsPage() {
 
           <div>
             <label className="input-label">Tanggal</label>
-            <input
-              type="date"
+            <DatePicker
               value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
-              className="input-field"
+              onChange={(v) => setForm({ ...form, date: v })}
+              max={new Date().toISOString().split('T')[0]}
             />
           </div>
 
@@ -352,6 +431,42 @@ export default function AdminTransactionsPage() {
             />
           </div>
 
+          {form.type === 'EXPENSE' && (
+            <div>
+              <label className="input-label">Bukti (opsional)</label>
+              {!proofPreview ? (
+                <label className="flex flex-col items-center justify-center h-28 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-brand-300">
+                  <Upload size={18} className="text-slate-400 mb-1" />
+                  <span className="text-xs text-slate-500">Upload foto bukti</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (!f) return
+                      if (!f.type.startsWith('image/')) return toast.error('Harus gambar')
+                      if (f.size > 5 * 1024 * 1024) return toast.error('Maks 5MB')
+                      setProofFile(f)
+                      setProofPreview(URL.createObjectURL(f))
+                    }}
+                  />
+                </label>
+              ) : (
+                <div className="relative h-36 rounded-xl overflow-hidden bg-slate-100">
+                  <Image src={proofPreview} alt="Bukti" fill className="object-contain" />
+                  <button
+                    type="button"
+                    onClick={() => { setProofFile(null); setProofPreview(null) }}
+                    className="absolute top-2 right-2 w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
             <button onClick={() => setShowAddModal(false)} className="btn-secondary flex-1 justify-center">
               Batal
@@ -363,6 +478,142 @@ export default function AdminTransactionsPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Hapus transaksi?"
+        message={deleteTarget ? `Hapus "${deleteTarget.desc}"?` : ''}
+        confirmLabel="Hapus"
+        variant="danger"
+      />
+
+      {/* Detail transaksi */}
+      <Modal
+        isOpen={!!selectedDetail}
+        onClose={() => setSelectedDetail(null)}
+        title="Detail Transaksi"
+        size="md"
+      >
+        {selectedDetail && (
+          <div className="p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                selectedDetail.type === 'INCOME' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+              }`}>
+                {selectedDetail.type === 'INCOME' ? 'Pemasukan' : 'Pengeluaran'}
+              </span>
+              <p className={`text-xl font-bold ${
+                selectedDetail.type === 'INCOME' ? 'text-green-600' : 'text-red-600'
+              }`}>
+                {selectedDetail.type === 'INCOME' ? '+' : '-'}
+                {formatRupiah(selectedDetail.amount)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-1">Keterangan</p>
+              <p className="text-sm font-medium text-slate-900">{selectedDetail.description}</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-xs text-slate-500 mb-0.5">Tanggal transaksi</p>
+                <p className="font-medium">
+                  {new Date(selectedDetail.date).toLocaleDateString('id-ID', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+                  })}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 mb-0.5">Dicatat</p>
+                <p className="font-medium">
+                  {new Date(selectedDetail.createdAt).toLocaleDateString('id-ID', {
+                    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                  })}
+                </p>
+              </div>
+              {selectedDetail.category && (
+                <div>
+                  <p className="text-xs text-slate-500 mb-0.5">Kategori</p>
+                  <p className="font-medium">{selectedDetail.category}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-slate-500 mb-0.5">Oleh</p>
+                <p className="font-medium">{selectedDetail.createdBy}</p>
+              </div>
+            </div>
+            {selectedDetail.proofImage && (
+              <button
+                type="button"
+                onClick={() => setProofModal(getApiImageUrl(selectedDetail.proofImage))}
+                className="relative w-full h-40 rounded-xl overflow-hidden bg-slate-100 border border-slate-200"
+              >
+                <Image src={getApiImageUrl(selectedDetail.proofImage)} alt="Bukti" fill className="object-contain p-2" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteTarget({ id: selectedDetail.id, desc: selectedDetail.description })
+                setSelectedDetail(null)
+              }}
+              className="btn-danger w-full justify-center text-sm"
+            >
+              <Trash2 size={15} />
+              Hapus Transaksi
+            </button>
+          </div>
+        )}
+      </Modal>
+
+      {/* Export periode */}
+      <Modal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        title="Export Laporan Keuangan"
+        size="sm"
+      >
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-slate-500">
+            Bulan opsional — pilih &quot;Semua (tahunan)&quot; untuk laporan setahun (.xlsx)
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="input-label">Bulan</label>
+              <AnimatedSelect
+                value={exportMonth}
+                onChange={setExportMonth}
+                options={exportMonthOptions}
+              />
+            </div>
+            <div>
+              <label className="input-label">Tahun</label>
+              <AnimatedSelect
+                value={exportYear}
+                onChange={(y) => {
+                  setExportYear(y)
+                  if (exportMonth && isFuture(parseInt(y), parseInt(exportMonth))) {
+                    setExportMonth('')
+                  }
+                }}
+                options={YEAR_OPTIONS}
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={() => setShowExportModal(false)} className="btn-secondary flex-1 justify-center">
+              Batal
+            </button>
+            <button type="button" onClick={handleExport} className="btn-primary flex-1 justify-center">
+              <Download size={15} />
+              Export
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <ImagePreviewModal src={proofModal} onClose={() => setProofModal(null)} title="Bukti Pengeluaran" />
     </div>
   )
 }

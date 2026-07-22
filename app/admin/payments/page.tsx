@@ -5,15 +5,20 @@ import { useSearchParams } from 'next/navigation'
 import { toast } from '@/lib/toast'
 import {
   Search, CheckCircle, XCircle, Download,
-  RefreshCw, Loader2, ZoomIn, X, AlertCircle
+  RefreshCw, Loader2, ZoomIn, AlertCircle, Edit2, ClipboardList
 } from 'lucide-react'
-import { paymentApi, exportApi, householdApi, formatRupiah, MONTHS_ID, getApiImageUrl } from '@/lib/api'
+import { paymentApi, exportApi, householdApi, formatRupiah, MONTHS_ID, getApiImageUrl, formatMoneyInput, sanitizeDigits } from '@/lib/api'
 import type { Payment } from '@/lib/types'
 import StatusBadge from '@/components/StatusBadge'
 import Modal from '@/components/ui/Modal'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import ImagePreviewModal from '@/components/ui/ImagePreviewModal'
 import AnimatedSelect from '@/components/ui/AnimatedSelect'
 import FilterPanel from '@/components/ui/FilterPanel'
-import { motion, AnimatePresence } from 'motion/react'
+import Pagination from '@/components/ui/Pagination'
+import { motion } from 'motion/react'
+import Link from 'next/link'
+import type { Household } from '@/lib/types'
 
 const YEAR_NOW = new Date().getFullYear()
 const YEAR_OPTIONS = [YEAR_NOW - 3, YEAR_NOW - 2, YEAR_NOW - 1, YEAR_NOW].map((y) => ({
@@ -25,15 +30,19 @@ const STATUS_OPTIONS = [
   { value: 'PENDING', label: 'Menunggu' },
   { value: 'VERIFIED', label: 'Terverifikasi' },
   { value: 'REJECTED', label: 'Ditolak' },
+  { value: 'UNPAID', label: 'Belum Bayar' },
 ]
 const MONTH_OPTIONS = [
   { value: '', label: 'Semua' },
   ...MONTHS_ID.map((m, i) => ({ value: String(i + 1), label: m })),
 ]
 
+type UnpaidRow = Pick<Household, 'id' | 'name' | 'block' | 'number'>
+
 function AdminPaymentsContent() {
   const searchParams = useSearchParams()
   const [payments, setPayments] = useState<Payment[]>([])
+  const [unpaidList, setUnpaidList] = useState<UnpaidRow[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
   const [imageModal, setImageModal] = useState<string | null>(null)
@@ -44,24 +53,55 @@ function AdminPaymentsContent() {
   const [verifyNotes, setVerifyNotes] = useState('')
   const [verifying, setVerifying] = useState(false)
   const [meta, setMeta] = useState({ total: 0, page: 1, totalPages: 1 })
+  const [page, setPage] = useState(1)
   const [activeHouseholds, setActiveHouseholds] = useState(0)
   const [verifiedCount, setVerifiedCount] = useState(0)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState({ amount: '', month: '', year: '', notes: '' })
+  const [savingEdit, setSavingEdit] = useState(false)
 
   const loadPayments = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await paymentApi.list({
-        status: filterStatus || undefined,
-        month: filterMonth ? parseInt(filterMonth) : undefined,
-        year: filterYear ? parseInt(filterYear) : undefined,
-        limit: 50,
-      })
-      setPayments(res.data.data)
-      setMeta(res.data.meta)
+      if (filterStatus === 'UNPAID') {
+        if (!filterMonth) {
+          toast.error('Pilih bulan untuk melihat belum bayar')
+          setUnpaidList([])
+          setPayments([])
+          return
+        }
+        const month = parseInt(filterMonth)
+        const year = parseInt(filterYear)
+        const [hhRes, payRes] = await Promise.all([
+          householdApi.list({ active: true }),
+          paymentApi.list({ month, year, limit: 100 }),
+        ])
+        const paidIds = new Set(
+          (payRes.data.data as Payment[])
+            .filter((p) => p.status !== 'REJECTED')
+            .map((p) => p.householdId)
+        )
+        const unpaid = (hhRes.data.data as Household[]).filter((h) => !paidIds.has(h.id))
+        setUnpaidList(unpaid)
+        setPayments([])
+        setMeta({ total: unpaid.length, page: 1, totalPages: 1 })
+      } else {
+        setUnpaidList([])
+        const res = await paymentApi.list({
+          status: filterStatus || undefined,
+          month: filterMonth ? parseInt(filterMonth) : undefined,
+          year: filterYear ? parseInt(filterYear) : undefined,
+          page,
+          limit: 20,
+        })
+        setPayments(res.data.data)
+        setMeta(res.data.meta)
+      }
     } finally {
       setLoading(false)
     }
-  }, [filterStatus, filterMonth, filterYear])
+  }, [filterStatus, filterMonth, filterYear, page])
 
   useEffect(() => {
     loadPayments()
@@ -107,14 +147,51 @@ function AdminPaymentsContent() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Yakin hapus data pembayaran ini?')) return
+  async function handleDelete() {
+    if (!deleteId) return
     try {
-      await paymentApi.delete(id)
+      await paymentApi.delete(deleteId)
       toast.success('Data pembayaran dihapus')
+      setDeleteId(null)
+      setSelectedPayment(null)
       loadPayments()
     } catch {
       toast.error('Gagal menghapus')
+    }
+  }
+
+  function startEdit(p: Payment) {
+    setEditForm({
+      amount: formatMoneyInput(String(p.amount)),
+      month: String(p.month),
+      year: String(p.year),
+      notes: p.notes || '',
+    })
+    setEditing(true)
+  }
+
+  async function saveEdit() {
+    if (!selectedPayment) return
+    const amount = parseInt(sanitizeDigits(editForm.amount) || '0')
+    if (!amount) return toast.error('Nominal wajib diisi')
+    setSavingEdit(true)
+    try {
+      const res = await paymentApi.update(selectedPayment.id, {
+        amount,
+        notes: editForm.notes,
+        ...(selectedPayment.status !== 'VERIFIED'
+          ? { month: parseInt(editForm.month), year: parseInt(editForm.year) }
+          : {}),
+      })
+      setSelectedPayment(res.data.data)
+      setEditing(false)
+      toast.success('Pembayaran diperbarui')
+      loadPayments()
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+      toast.error(msg || 'Gagal menyimpan')
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -127,7 +204,17 @@ function AdminPaymentsContent() {
     )
   })
 
+  const filteredUnpaid = unpaidList.filter((hh) => {
+    if (!searchQuery) return true
+    const q = searchQuery.toLowerCase()
+    return (
+      hh.name.toLowerCase().includes(q) ||
+      `${hh.block}${hh.number}`.toLowerCase().includes(q)
+    )
+  })
+
   const pendingCount = payments.filter((p) => p.status === 'PENDING').length
+  const showingUnpaid = filterStatus === 'UNPAID'
 
   return (
     <div className="p-3 sm:p-4 lg:p-6">
@@ -139,19 +226,23 @@ function AdminPaymentsContent() {
             {meta.total} total · {pendingCount} menunggu verifikasi
           </p>
         </div>
-        <div className="sm:ml-auto grid grid-cols-2 sm:flex gap-2 w-full sm:w-auto">
+        <div className="sm:ml-auto grid grid-cols-3 sm:flex gap-2 w-full sm:w-auto">
           <button onClick={loadPayments} className="btn-secondary justify-center min-h-10">
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
           </button>
+          <Link href="/admin/payments/recap" className="btn-secondary text-sm justify-center min-h-10">
+            <ClipboardList size={15} />
+            Rekap
+          </Link>
           <button
             onClick={() => exportApi.payments({
               month: filterMonth ? parseInt(filterMonth) : undefined,
               year: filterYear ? parseInt(filterYear) : undefined,
             }).catch(() => toast.error('Gagal export'))}
-            className="btn-secondary text-sm justify-center min-h-10 col-span-1 sm:col-auto"
+            className="btn-secondary text-sm justify-center min-h-10"
           >
             <Download size={15} />
-            Export Excel
+            Export
           </button>
         </div>
       </div>
@@ -187,15 +278,15 @@ function AdminPaymentsContent() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
           <div>
             <label className="input-label">Status</label>
-            <AnimatedSelect value={filterStatus} onChange={setFilterStatus} options={STATUS_OPTIONS} />
+            <AnimatedSelect value={filterStatus} onChange={(v) => { setFilterStatus(v); setPage(1) }} options={STATUS_OPTIONS} />
           </div>
           <div>
             <label className="input-label">Bulan</label>
-            <AnimatedSelect value={filterMonth} onChange={setFilterMonth} options={MONTH_OPTIONS} />
+            <AnimatedSelect value={filterMonth} onChange={(v) => { setFilterMonth(v); setPage(1) }} options={MONTH_OPTIONS} />
           </div>
           <div>
             <label className="input-label">Tahun</label>
-            <AnimatedSelect value={filterYear} onChange={setFilterYear} options={YEAR_OPTIONS} />
+            <AnimatedSelect value={filterYear} onChange={(v) => { setFilterYear(v); setPage(1) }} options={YEAR_OPTIONS} />
           </div>
           <div className="col-span-2 lg:col-span-1">
             <label className="input-label">Cari KK</label>
@@ -218,6 +309,27 @@ function AdminPaymentsContent() {
         <div className="flex justify-center py-12">
           <Loader2 size={32} className="animate-spin text-brand-600" />
         </div>
+      ) : showingUnpaid ? (
+        filteredUnpaid.length === 0 ? (
+          <div className="card text-center py-12 text-gray-400">
+            <p>Semua KK sudah bayar / upload untuk periode ini</p>
+          </div>
+        ) : (
+          <div className="space-y-2.5 max-h-[min(560px,70vh)] overflow-y-auto pr-1">
+            {filteredUnpaid.map((hh) => (
+              <div key={hh.id} className="card flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-50 text-red-700 rounded-xl flex items-center justify-center text-xs font-bold">
+                  {hh.block}{hh.number}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm text-gray-900 truncate">{hh.name}</p>
+                  <p className="text-xs text-gray-400">Blok {hh.block} No. {hh.number}</p>
+                </div>
+                <span className="badge-rejected">Belum Bayar</span>
+              </div>
+            ))}
+          </div>
+        )
       ) : filtered.length === 0 ? (
         <div className="card text-center py-12 text-gray-400">
           <AlertCircle size={32} className="mx-auto mb-3 opacity-40" />
@@ -246,6 +358,9 @@ function AdminPaymentsContent() {
                 <p className="font-medium text-gray-900 text-sm sm:text-sm truncate">{payment.household.name}</p>
                 <p className="text-[11px] sm:text-xs text-gray-400">
                   {MONTHS_ID[payment.month - 1]} {payment.year} · {formatRupiah(payment.amount)}
+                  {payment.isAmountMismatch && (
+                    <span className="ml-1 text-amber-600 font-medium">· nominal beda</span>
+                  )}
                 </p>
               </div>
 
@@ -271,6 +386,12 @@ function AdminPaymentsContent() {
               )}
             </div>
           ))}
+          <Pagination
+            page={meta.page}
+            totalPages={meta.totalPages}
+            total={meta.total}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
@@ -301,6 +422,9 @@ function AdminPaymentsContent() {
                 <div>
                   <p className="text-gray-500 text-xs mb-0.5">Nominal</p>
                   <p className="font-semibold text-brand-700">{formatRupiah(selectedPayment.amount)}</p>
+                  {selectedPayment.isAmountMismatch && (
+                    <p className="text-xs text-amber-600 mt-0.5">Berbeda dari iuran standar</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-gray-500 text-xs mb-0.5">Tanggal Upload</p>
@@ -338,6 +462,60 @@ function AdminPaymentsContent() {
               </div>
             )}
 
+            {/* Edit */}
+            {editing ? (
+              <div className="space-y-3 border border-slate-100 rounded-xl p-4">
+                <p className="text-sm font-semibold">Edit Pembayaran</p>
+                {selectedPayment.status !== 'VERIFIED' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="input-label">Bulan</label>
+                      <AnimatedSelect
+                        value={editForm.month}
+                        onChange={(v) => setEditForm({ ...editForm, month: v })}
+                        options={MONTHS_ID.map((m, i) => ({ value: String(i + 1), label: m }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="input-label">Tahun</label>
+                      <input
+                        className="input-field"
+                        value={editForm.year}
+                        onChange={(e) => setEditForm({ ...editForm, year: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <label className="input-label">Nominal</label>
+                  <input
+                    className="input-field"
+                    inputMode="numeric"
+                    value={editForm.amount}
+                    onChange={(e) => setEditForm({ ...editForm, amount: formatMoneyInput(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label className="input-label">Catatan</label>
+                  <input
+                    className="input-field"
+                    value={editForm.notes}
+                    onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setEditing(false)} className="btn-secondary flex-1 justify-center">Batal</button>
+                  <button type="button" onClick={saveEdit} disabled={savingEdit} className="btn-primary flex-1 justify-center">
+                    {savingEdit ? <Loader2 size={16} className="animate-spin" /> : 'Simpan'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => startEdit(selectedPayment)} className="btn-secondary text-sm justify-center w-full sm:w-auto">
+                <Edit2 size={15} /> Edit
+              </button>
+            )}
+
             {/* Verify form - only show for PENDING */}
             {selectedPayment.status === 'PENDING' && (
               <div>
@@ -370,52 +548,27 @@ function AdminPaymentsContent() {
               </div>
             )}
 
-            {/* Actions for verified/rejected */}
-            {selectedPayment.status !== 'PENDING' && (
-              <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  onClick={() => handleDelete(selectedPayment.id)}
-                  className="btn-danger text-sm justify-center"
-                >
-                  Hapus Data
-                </button>
-              </div>
-            )}
+            <button
+              onClick={() => setDeleteId(selectedPayment.id)}
+              className="btn-danger text-sm justify-center w-full sm:w-auto"
+            >
+              Hapus Data
+            </button>
           </div>
         )}
       </Modal>
 
-      {/* Image Zoom Modal */}
-      <AnimatePresence>
-        {imageModal && (
-          <motion.div
-            className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={() => setImageModal(null)}
-          >
-            <button
-              className="absolute top-4 right-4 w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-white hover:bg-white/30"
-              onClick={() => setImageModal(null)}
-              aria-label="Tutup"
-            >
-              <X size={20} />
-            </button>
-            <motion.div
-              className="relative max-w-full max-h-full w-full h-full"
-              initial={{ scale: 0.88, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.92, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 380, damping: 32, mass: 0.9 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Image src={imageModal} alt="Bukti" fill className="object-contain" />
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <ConfirmDialog
+        isOpen={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        onConfirm={handleDelete}
+        title="Hapus pembayaran?"
+        message="Data pembayaran akan dihapus permanen."
+        confirmLabel="Hapus"
+        variant="danger"
+      />
+
+      <ImagePreviewModal src={imageModal} onClose={() => setImageModal(null)} />
     </div>
   )
 }

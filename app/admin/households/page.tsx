@@ -8,6 +8,7 @@ import {
 import { householdApi, exportApi, formatPhoneInput, isValidPhone } from '@/lib/api'
 import type { Household } from '@/lib/types'
 import Modal from '@/components/ui/Modal'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 
 export default function AdminHouseholdsPage() {
   const [households, setHouseholds] = useState<Household[]>([])
@@ -23,6 +24,7 @@ export default function AdminHouseholdsPage() {
     number: '',
     phone: '',
   })
+  const [toggleTarget, setToggleTarget] = useState<Household | null>(null)
 
   const loadHouseholds = useCallback(async () => {
     setLoading(true)
@@ -79,13 +81,13 @@ export default function AdminHouseholdsPage() {
     }
   }
 
-  async function toggleActive(hh: Household) {
-    const action = hh.isActive ? 'menonaktifkan' : 'mengaktifkan'
-    if (!confirm(`Yakin ${action} KK ${hh.name}?`)) return
-
+  async function toggleActive() {
+    const hh = toggleTarget
+    if (!hh) return
     try {
       await householdApi.update(hh.id, { isActive: !hh.isActive })
       toast.success(`KK ${hh.name} berhasil di${hh.isActive ? 'nonaktifkan' : 'aktifkan'}`)
+      setToggleTarget(null)
       loadHouseholds()
     } catch {
       toast.error('Gagal mengubah status')
@@ -168,7 +170,7 @@ export default function AdminHouseholdsPage() {
           <Loader2 size={32} className="animate-spin text-brand-600" />
         </div>
       ) : (
-        <div className="space-y-2.5">
+        <div className="space-y-2.5 max-h-[min(640px,75vh)] overflow-y-auto pr-1">
           {filtered.map((hh) => (
             <div
               key={hh.id}
@@ -211,7 +213,7 @@ export default function AdminHouseholdsPage() {
                   <Edit2 size={15} />
                 </button>
                 <button
-                  onClick={() => toggleActive(hh)}
+                  onClick={() => setToggleTarget(hh)}
                   className={`p-2.5 sm:p-2 rounded-lg transition-colors ${
                     hh.isActive
                       ? 'text-gray-400 hover:text-red-500 hover:bg-red-50'
@@ -294,6 +296,16 @@ export default function AdminHouseholdsPage() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={!!toggleTarget}
+        onClose={() => setToggleTarget(null)}
+        onConfirm={toggleActive}
+        title={toggleTarget?.isActive ? 'Nonaktifkan KK?' : 'Aktifkan KK?'}
+        message={toggleTarget ? `${toggleTarget.isActive ? 'Nonaktifkan' : 'Aktifkan'} ${toggleTarget.name}?` : ''}
+        confirmLabel={toggleTarget?.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+        variant={toggleTarget?.isActive ? 'danger' : 'warning'}
+      />
     </div>
   )
 }
